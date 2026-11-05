@@ -283,6 +283,23 @@ export function listArtifacts(conn: Conn, workflowRunId: number): Row[] {
     .all(workflowRunId) as Row[];
 }
 
+export function latestAgentRunsByRole(conn: Conn): Record<string, Row> {
+  const rows = conn
+    .prepare(
+      `SELECT ar.* FROM agent_runs ar
+       INNER JOIN (
+         SELECT role, MAX(id) AS max_id FROM agent_runs GROUP BY role
+       ) latest ON latest.role = ar.role AND latest.max_id = ar.id`,
+    )
+    .all() as Row[];
+  const out: Record<string, Row> = {};
+  for (const row of rows) {
+    const item = agentRunFromRow(row);
+    out[String(item.role)] = item;
+  }
+  return out;
+}
+
 export function stats(conn: Conn): Record<string, number> {
   const count = (table: string): number =>
     Number((conn.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as Row).n);

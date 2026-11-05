@@ -1,0 +1,37 @@
+<%- include("partials/header", { title: "Agents · Dev Firm" }) %>
+<h1>Agent health</h1>
+<p class="lead">
+  Status of each role in the build team. Health reflects the most recent recorded run for
+  that agent; a role shows <em>never-run</em> until its first build.
+</p>
+
+<div class="card table-wrap">
+  <table>
+    <thead><tr><th>Role</th><th>Status</th><th>Model</th><th>Last run</th><th>Error</th></tr></thead>
+    <tbody>
+    <% for (const agent of agents) { %>
+      <tr>
+        <td><strong><%= agent.role %></strong></td>
+        <% if (agent.run) { %>
+        <td><span class="badge <%= agent.run.status %>"><%= agent.run.status %></span></td>
+        <td class="small muted"><%= agent.run.provider %> / <%= agent.run.model %></td>
+        <td class="small muted"><%= String(agent.run.finished_at || agent.run.created_at || '').slice(0, 16).replace('T', ' ') %></td>
+        <td class="small muted"><%= agent.run.error || '—' %></td>
+        <% } else { %>
+        <td><span class="badge">never-run</span></td>
+        <td class="small muted">—</td>
+        <td class="small muted">—</td>
+        <td class="small muted">—</td>
+        <% } %>
+      </tr>
+    <% } %>
+    </tbody>
+  </table>
+</div>
+
+<p class="small muted" style="margin-top: 12px;">
+  Configure the team's model in <a href="/settings">Settings</a>. Run a build in the
+  <a href="/build">Build lab</a> to populate run history; the full audit trail lives on
+  the <a href="/runs">Runs</a> page.
+</p>
+<%- include("partials/footer") %>

@@ -246,12 +246,21 @@ export function createApp(initialSettings?: Settings): express.Express {
   });
 
   app.get('/health', (_req, res) => {
+    const latest = db.withSession(settings.dbPath, (conn) => db.latestAgentRunsByRole(conn));
     res.json({
       ok: true,
       setup_complete: settings.setupComplete,
       provider: settings.provider,
       model: settings.model,
       stats: stats(),
+      agents: Object.fromEntries(
+        ['product_manager', 'architect', 'developer', 'tech_lead', 'qa'].map((role) => [
+          role,
+          latest[role]
+            ? { status: latest[role].status, model: latest[role].model, finished_at: latest[role].finished_at }
+            : { status: 'never-run' },
+        ]),
+      ),
     });
   });
 
@@ -260,6 +269,17 @@ export function createApp(initialSettings?: Settings): express.Express {
     const workflows = db.withSession(settings.dbPath, (conn) => db.listWorkflows(conn, 40));
     const agentRuns = db.withSession(settings.dbPath, (conn) => db.listAgentRuns(conn, null, 80));
     page(res, 'runs', { workflows, agent_runs: agentRuns, active: 'runs' });
+  });
+
+  // ── agents health ────────────────────────────────────────────────────────────
+  app.get('/agents', (req, res) => {
+    const latest = db.withSession(settings.dbPath, (conn) => db.latestAgentRunsByRole(conn));
+    const roles = ['product_manager', 'architect', 'developer', 'tech_lead', 'qa'];
+    const agents = roles.map((role) => ({
+      role,
+      run: latest[role] ?? null,
+    }));
+    page(res, 'agents', { agents, active: 'agents' });
   });
 
   // ── build lab ───────────────────────────────────────────────────────────────
