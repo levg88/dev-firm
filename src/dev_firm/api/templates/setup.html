@@ -27,6 +27,7 @@
             ("openai", "OpenAI / OpenAI-compatible"),
             ("anthropic", "Anthropic"),
             ("ollama", "Ollama (local)"),
+            ("opencode", "OpenCode (free & paid models)"),
             ("mock", "Offline mode (no key)")
           ] %}
           <option value="{{ value }}" {{ "selected" if settings.provider == value else "" }}>{{ label }}</option>
@@ -45,8 +46,8 @@
         <input id="api_key" type="password" name="api_key" autocomplete="new-password"
                placeholder="{% if settings.api_key_hint %}Current: {{ settings.api_key_hint }} — leave blank to keep{% else %}Paste your provider API key{% endif %}">
         <p class="small muted" style="margin: 5px 0 0;">
-          Leave blank to keep the current key. Required for OpenAI and Anthropic; not used by
-          Ollama or Offline mode.
+          Leave blank to keep the current key. Required for OpenAI, Anthropic and
+          OpenCode; not used by Ollama or Offline mode.
         </p>
       </div>
       <div class="field">

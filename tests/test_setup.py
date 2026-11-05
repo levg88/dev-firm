@@ -141,3 +141,69 @@ def test_cli_applies_stored_settings(fresh_settings: Settings):
     assert loaded.provider == "ollama"
     assert loaded.model == "llama3.1"
     assert loaded.setup_complete is True
+
+
+def test_setup_saves_opencode_provider(fresh_client: TestClient, fresh_settings: Settings):
+    secret = "oc_test_key_1234567890"
+    response = fresh_client.post(
+        "/setup",
+        data={
+            "provider": "opencode",
+            "model": "deepseek-v4.1-flash-free",
+            "base_url": "https://opencode.ai/inference/openai/v1",
+            "api_key": secret,
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == "/?welcome=1"
+
+    assert fresh_settings.provider == "opencode"
+    assert fresh_settings.model == "deepseek-v4.1-flash-free"
+    assert fresh_settings.opencode_api_key == secret
+    assert fresh_settings.opencode_base_url == "https://opencode.ai/inference/openai/v1"
+
+    with db.session(fresh_settings.db_path) as conn:
+        stored = db.get_app_settings(conn)
+    assert stored["provider"] == "opencode"
+    assert stored["opencode_api_key"] == secret
+    assert stored["opencode_base_url"] == "https://opencode.ai/inference/openai/v1"
+
+
+def test_setup_requires_key_for_opencode(fresh_client: TestClient):
+    response = fresh_client.post(
+        "/setup",
+        data={"provider": "opencode", "model": "deepseek-v4.1-flash-free"},
+    )
+    assert response.status_code == 200
+    assert "OpenCode API key is required" in response.text
+
+
+def test_opencode_llm_client_construction(fresh_settings: Settings):
+    from dev_firm.llm import build_llm
+
+    fresh_settings.provider = "opencode"
+    fresh_settings.opencode_api_key = "oc_test_key_1234567890"
+    fresh_settings.opencode_base_url = "https://opencode.ai/inference/openai/v1"
+    fresh_settings.model = "deepseek-v4.1-flash-free"
+
+    llm = build_llm(fresh_settings)
+    assert llm.provider == "opencode"
+    assert llm.model == "deepseek-v4.1-flash-free"
+    assert llm.api_key == "oc_test_key_1234567890"
+    assert llm.base_url == "https://opencode.ai/inference/openai/v1"
+
+
+def test_default_model_for_opencode():
+    from dev_firm.config import default_model_for, default_base_url_for
+
+    assert default_model_for("opencode") == "deepseek-v4.1-flash-free"
+    assert default_base_url_for("opencode") == "https://opencode.ai/inference/openai/v1"
+
+
+def test_opencode_provider_detection_from_env(fresh_settings: Settings, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("OPENCODE_API_KEY", "oc_test_key_1234567890")
+    monkeypatch.delenv("DEV_FIRM_PROVIDER", raising=False)
+    new_settings = Settings.load()
+    assert new_settings.provider == "opencode"
+    assert new_settings.opencode_api_key == "oc_test_key_1234567890"

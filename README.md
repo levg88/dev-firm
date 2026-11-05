@@ -139,13 +139,15 @@ wizard, the stored configuration takes precedence.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `DEV_FIRM_PROVIDER` | auto | `openai`, `anthropic`, `ollama`, or `mock` |
+| `DEV_FIRM_PROVIDER` | auto | `openai`, `anthropic`, `ollama`, `opencode`, or `mock` |
 | `DEV_FIRM_MODEL` | provider-specific | Model ID |
 | `DEV_FIRM_SETUP_COMPLETE` | auto | Set `false` to force the wizard on next start |
 | `OPENAI_API_KEY` | — | OpenAI or compatible provider |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Any OpenAI-compatible endpoint |
 | `ANTHROPIC_API_KEY` | — | Native Anthropic adapter |
 | `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama’s OpenAI-compatible endpoint |
+| `OPENCODE_API_KEY` | — | OpenCode Console API key |
+| `OPENCODE_BASE_URL` | `https://opencode.ai/inference/openai/v1` | OpenCode OpenAI-compatible endpoint |
 | `DEV_FIRM_TEMPERATURE` | `0.2` | Generation temperature |
 | `DEV_FIRM_MAX_TOKENS` | `8192` | Per-call limit |
 | `DEV_FIRM_TIMEOUT` | `180` | Provider request timeout (seconds) |
@@ -160,6 +162,13 @@ Provider behaviour:
 - **OpenAI-compatible** covers OpenAI, Ollama, OpenRouter, vLLM, and similar.
 - **Anthropic** uses the native Messages API with tool use.
 - **Ollama** uses its OpenAI-compatible endpoint; no API key is required.
+- **OpenCode** uses `https://opencode.ai/inference/openai/v1` with an `OPENCODE_API_KEY`.
+  It works with paid models and the free chat models listed on
+  [OpenCode Console](https://opencode.ai/console/org_01M6P7F9TJB9G4V26SYSZZ1J8Z/models)
+  (e.g. `deepseek-v4.1-flash-free`, `glm-5.3-flash-free`, `big-pickle`,
+  `nemotron-3.5-super-vl-free`). Free-tier chat models may be restricted to the
+  OpenCode client; if a free model rejects requests from here, switch to a paid model
+  or Ollama.
 - **Offline mode** is fully local and deterministic.
 - If a provider is selected but its key is missing, the app degrades to offline mode with
   a visible banner instead of crashing.

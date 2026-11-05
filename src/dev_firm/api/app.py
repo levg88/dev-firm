@@ -28,11 +28,7 @@ def _llm_note(settings: Settings) -> str:
 
 
 def _current_base_url(settings: Settings) -> str:
-    if settings.provider == "anthropic":
-        return settings.anthropic_base_url
-    if settings.provider == "ollama":
-        return settings.ollama_base_url
-    return settings.base_url
+    return settings.active_base_url
 
 
 def _run_build(settings: Settings, workflow_id: int, brief: str) -> None:
@@ -89,11 +85,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             base_url=_current_base_url(settings),
             suggested_models={
                 provider: default_model_for(provider)
-                for provider in ("openai", "anthropic", "ollama", "mock")
+                for provider in ("openai", "anthropic", "ollama", "opencode", "mock")
             },
             suggested_base_urls={
                 provider: default_base_url_for(provider)
-                for provider in ("openai", "anthropic", "ollama")
+                for provider in ("openai", "anthropic", "ollama", "opencode")
             },
             error=error,
             message=message,
@@ -130,7 +126,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ):
         editing = settings.setup_complete
         provider = provider.strip().lower()
-        if provider not in {"openai", "anthropic", "ollama", "mock"}:
+        if provider not in {"openai", "anthropic", "ollama", "opencode", "mock"}:
             return setup_page(
                 request,
                 editing=editing,
@@ -140,7 +136,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         key_cleared = clear_key.strip().lower() in {"1", "true", "yes", "on"}
         entered_key = "" if key_cleared else api_key.strip()
         existing_key = (
-            settings.anthropic_api_key if provider == "anthropic" else settings.api_key
+            settings.anthropic_api_key
+            if provider == "anthropic"
+            else settings.opencode_api_key
+            if provider == "opencode"
+            else settings.api_key
         )
         effective_key = entered_key or existing_key
         if provider == "openai" and not effective_key:
@@ -154,6 +154,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 request,
                 editing=editing,
                 error="An Anthropic API key is required. Choose Offline mode if you do not have one.",
+            )
+        if provider == "opencode" and not effective_key:
+            return setup_page(
+                request,
+                editing=editing,
+                error="An OpenCode API key is required. Choose Offline mode if you do not have one.",
             )
 
         resolved_base = base_url.strip() or default_base_url_for(provider)
@@ -173,15 +179,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             updates["anthropic_base_url"] = resolved_base
         elif provider == "ollama":
             updates["ollama_base_url"] = resolved_base
-        elif provider == "openai":
+        elif provider == "opencode":
+            updates["opencode_base_url"] = resolved_base
+        else:
             updates["base_url"] = resolved_base
 
         if key_cleared:
             updates["api_key"] = ""
             updates["anthropic_api_key"] = ""
+            updates["opencode_api_key"] = ""
         elif entered_key:
             if provider == "anthropic":
                 updates["anthropic_api_key"] = entered_key
+            elif provider == "opencode":
+                updates["opencode_api_key"] = entered_key
             elif provider in {"openai", "ollama"}:
                 updates["api_key"] = entered_key
 

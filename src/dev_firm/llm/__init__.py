@@ -60,4 +60,17 @@ def build_llm(settings: Settings) -> LLMClient:
             provider="openai",
         )
 
+    if provider == "opencode":
+        if not settings.opencode_api_key:
+            return MockClient(reason="No OpenCode API key is configured")
+        return OpenAICompatClient(
+            api_key=settings.opencode_api_key,
+            base_url=settings.opencode_base_url,
+            model=settings.model,
+            temperature=settings.temperature,
+            max_tokens=settings.max_tokens,
+            timeout=settings.timeout,
+            provider="opencode",
+        )
+
     raise LLMError(f"Unknown provider: {provider}")

@@ -41,6 +41,19 @@ def _int(name: str, default: int) -> int:
         return default
 
 
+OPENCODE_BASE_URL = "https://opencode.ai/inference/openai/v1"
+OPENCODE_FREE_MODELS = (
+    "deepseek-v4.1-flash-free",
+    "glm-5.3-flash-free",
+    "big-pickle",
+    "mimo-v2.6-flash-free",
+    "nemotron-3.5-lightning-free",
+    "beam-free",
+    "flint-40b-free",
+    "pulse-alpha-free",
+)
+
+
 def _default_provider() -> str:
     explicit = os.getenv("DEV_FIRM_PROVIDER")
     if explicit:
@@ -49,6 +62,8 @@ def _default_provider() -> str:
         return "openai"
     if os.getenv("ANTHROPIC_API_KEY"):
         return "anthropic"
+    if os.getenv("OPENCODE_API_KEY"):
+        return "opencode"
     return "mock"
 
 
@@ -56,12 +71,7 @@ def _default_model(provider: str) -> str:
     explicit = os.getenv("DEV_FIRM_MODEL")
     if explicit:
         return explicit
-    return {
-        "openai": "gpt-4.1",
-        "anthropic": "claude-sonnet-4-20250514",
-        "ollama": "llama3.1",
-        "mock": "mock",
-    }.get(provider, "gpt-4.1")
+    return default_model_for(provider)
 
 
 def default_model_for(provider: str) -> str:
@@ -69,6 +79,7 @@ def default_model_for(provider: str) -> str:
         "openai": "gpt-4.1",
         "anthropic": "claude-sonnet-4-20250514",
         "ollama": "llama3.1",
+        "opencode": "deepseek-v4.1-flash-free",
         "mock": "mock",
     }.get(provider, "gpt-4.1")
 
@@ -78,6 +89,7 @@ def default_base_url_for(provider: str) -> str:
         "openai": "https://api.openai.com/v1",
         "anthropic": "https://api.anthropic.com/v1",
         "ollama": "http://localhost:11434/v1",
+        "opencode": OPENCODE_BASE_URL,
     }.get(provider, "")
 
 
@@ -95,6 +107,8 @@ class Settings:
     anthropic_api_key: str
     anthropic_base_url: str
     ollama_base_url: str
+    opencode_api_key: str
+    opencode_base_url: str
     temperature: float
     max_tokens: int
     timeout: float
@@ -118,10 +132,13 @@ class Settings:
         base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
         if provider == "ollama":
             base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1").rstrip("/")
+        elif provider == "opencode":
+            base_url = os.getenv("OPENCODE_BASE_URL", OPENCODE_BASE_URL).rstrip("/")
         env_configured = bool(
             os.getenv("DEV_FIRM_PROVIDER")
             or os.getenv("OPENAI_API_KEY")
             or os.getenv("ANTHROPIC_API_KEY")
+            or os.getenv("OPENCODE_API_KEY")
         )
 
         settings = cls(
@@ -140,6 +157,10 @@ class Settings:
             ).rstrip("/"),
             ollama_base_url=os.getenv(
                 "OLLAMA_BASE_URL", "http://localhost:11434/v1"
+            ).rstrip("/"),
+            opencode_api_key=os.getenv("OPENCODE_API_KEY", ""),
+            opencode_base_url=os.getenv(
+                "OPENCODE_BASE_URL", OPENCODE_BASE_URL
             ).rstrip("/"),
             temperature=_float("DEV_FIRM_TEMPERATURE", 0.2),
             max_tokens=_int("DEV_FIRM_MAX_TOKENS", 8192),
@@ -197,6 +218,10 @@ class Settings:
             self.anthropic_base_url = values["anthropic_base_url"].strip().rstrip("/")
         if "ollama_base_url" in values:
             self.ollama_base_url = values["ollama_base_url"].strip().rstrip("/")
+        if "opencode_api_key" in values:
+            self.opencode_api_key = values["opencode_api_key"].strip()
+        if "opencode_base_url" in values:
+            self.opencode_base_url = values["opencode_base_url"].strip().rstrip("/")
         if "temperature" in values:
             self.temperature = as_float("temperature", self.temperature)
         if "max_tokens" in values:
@@ -224,6 +249,7 @@ class Settings:
             "base_url": self.base_url,
             "anthropic_base_url": self.anthropic_base_url,
             "ollama_base_url": self.ollama_base_url,
+            "opencode_base_url": self.opencode_base_url,
             "temperature": str(self.temperature),
             "max_tokens": str(self.max_tokens),
             "timeout": str(self.timeout),
@@ -236,13 +262,26 @@ class Settings:
         if include_secrets:
             values["api_key"] = self.api_key
             values["anthropic_api_key"] = self.anthropic_api_key
+            values["opencode_api_key"] = self.opencode_api_key
         return values
 
     @property
     def active_api_key(self) -> str:
         if self.provider == "anthropic":
             return self.anthropic_api_key
+        if self.provider == "opencode":
+            return self.opencode_api_key
         return self.api_key
+
+    @property
+    def active_base_url(self) -> str:
+        if self.provider == "anthropic":
+            return self.anthropic_base_url
+        if self.provider == "ollama":
+            return self.ollama_base_url
+        if self.provider == "opencode":
+            return self.opencode_base_url
+        return self.base_url
 
     @property
     def api_key_hint(self) -> str:
