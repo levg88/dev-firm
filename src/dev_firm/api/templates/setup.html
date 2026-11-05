@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}{{ "Settings" if editing else "Setup" }} · Dev Firm{% endblock %}
+{% block content %}
+<h1>{{ "Settings" if editing else "Set up Dev Firm" }}</h1>
+<p class="lead">
+  {% if editing %}
+  Change the model provider, API key, or defaults. Everything is stored locally.
+  {% else %}
+  No config file needed. Choose how the build team thinks, then describe the app you
+  want written. Everything is stored in your local database on this machine.
+  {% endif %}
+</p>
+
+<form method="post" action="{{ '/settings' if editing else '/setup' }}">
+  <section class="card">
+    <h2 style="margin-top: 0;">Model provider</h2>
+    <p class="small muted">
+      Choose how the agents think. Offline mode works without a key and records
+      placeholder artifacts; a real provider writes working code.
+    </p>
+
+    <div class="row">
+      <div class="field">
+        <label for="provider">Provider</label>
+        <select id="provider" name="provider">
+          {% for value, label in [
+            ("openai", "OpenAI / OpenAI-compatible"),
+            ("anthropic", "Anthropic"),
+            ("ollama", "Ollama (local)"),
+            ("mock", "Offline mode (no key)")
+          ] %}
+          <option value="{{ value }}" {{ "selected" if settings.provider == value else "" }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="model">Model</label>
+        <input id="model" type="text" name="model" value="{{ settings.model }}" placeholder="gpt-4.1">
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="api_key">API key</label>
+        <input id="api_key" type="password" name="api_key" autocomplete="new-password"
+               placeholder="{% if settings.api_key_hint %}Current: {{ settings.api_key_hint }} — leave blank to keep{% else %}Paste your provider API key{% endif %}">
+        <p class="small muted" style="margin: 5px 0 0;">
+          Leave blank to keep the current key. Required for OpenAI and Anthropic; not used by
+          Ollama or Offline mode.
+        </p>
+      </div>
+      <div class="field">
+        <label for="base_url">Base URL <span class="muted">(optional)</span></label>
+        <input id="base_url" type="text" name="base_url" value="{{ base_url }}" placeholder="https://api.openai.com/v1">
+        <p class="small muted" style="margin: 5px 0 0;">
+          Change this for OpenRouter, vLLM, a proxy, or a self-hosted Ollama endpoint.
+        </p>
+      </div>
+    </div>
+
+    <label style="display: flex; gap: 8px; align-items: center; font-weight: 500;">
+      <input type="checkbox" name="clear_key" style="width: auto;">
+      Clear the saved key for this provider
+    </label>
+
+    <details>
+      <summary>Advanced model settings</summary>
+      <div class="row" style="margin-top: 12px;">
+        <div class="field">
+          <label for="temperature">Temperature</label>
+          <input id="temperature" type="text" name="temperature" value="{{ settings.temperature }}">
+        </div>
+        <div class="field">
+          <label for="max_tokens">Max tokens per call</label>
+          <input id="max_tokens" type="text" name="max_tokens" value="{{ settings.max_tokens }}">
+        </div>
+        <div class="field">
+          <label for="max_agent_steps">Max agent steps</label>
+          <input id="max_agent_steps" type="text" name="max_agent_steps" value="{{ settings.max_agent_steps }}">
+        </div>
+      </div>
+      <label style="display: flex; gap: 8px; align-items: center; font-weight: 500;">
+        <input type="checkbox" name="allow_heuristic_fallback" style="width: auto;"
+               {{ "checked" if settings.allow_heuristic_fallback else "" }}>
+        Fall back to offline placeholder output if a model call fails
+      </label>
+    </details>
+  </section>
+
+  <div class="banner" style="margin-top: 16px;">
+    <strong>How it works:</strong> each build runs in
+    <span class="mono">data/runs/build_&lt;id&gt;/workspace/</span>. The developer writes
+    real files there and QA runs the test suite. You can review every agent call and
+    artifact afterwards.
+  </div>
+
+  <div class="banner" style="margin-top: 16px;">
+    <strong>Privacy:</strong> API keys are stored only in the local SQLite database
+    (file permissions <span class="mono">0600</span>) and are sent only to the provider you
+    choose. Do not expose this server to untrusted networks.
+  </div>
+
+  <div style="margin-top: 16px; display: flex; gap: 10px; align-items: center;">
+    <button type="submit">{{ "Save settings" if editing else "Save and open the firm" }}</button>
+    <span class="small muted">You can change all of this later in Settings.</span>
+  </div>
+</form>
+
+<script>
+  const modelSuggestions = {{ suggested_models | tojson }};
+  const baseSuggestions = {{ suggested_base_urls | tojson }};
+  const provider = document.getElementById("provider");
+  const model = document.getElementById("model");
+  const baseUrl = document.getElementById("base_url");
+  provider.addEventListener("change", () => {
+    const knownModels = Object.values(modelSuggestions);
+    if (!model.value || knownModels.includes(model.value)) {
+      model.value = modelSuggestions[provider.value] || "";
+    }
+    const knownBases = Object.values(baseSuggestions);
+    if (!baseUrl.value || knownBases.includes(baseUrl.value)) {
+      baseUrl.value = baseSuggestions[provider.value] || "";
+    }
+  });
+</script>
+{% endblock %}

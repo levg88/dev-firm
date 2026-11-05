@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Build #{{ workflow.id }} · Dev Firm{% endblock %}
+{% block content %}
+<div class="split">
+  <div class="grow">
+    <p class="small muted" style="margin-bottom: 4px;">Build workflow #{{ workflow.id }}</p>
+    <h1>{{ workflow.title }}</h1>
+    <p class="small muted">
+      <span class="badge {{ workflow.status }}">{{ workflow.status }}</span>
+      · {{ workflow.created_at[:16].replace("T", " ") }} UTC
+      {% if workflow.workspace_path %}· <span class="mono small">{{ workflow.workspace_path }}</span>{% endif %}
+    </p>
+  </div>
+  <a class="button secondary" href="/build">New build</a>
+</div>
+
+{% if workflow.status not in ["done", "failed"] %}
+<div class="card" style="margin-top: 18px;">
+  <p><span class="spinner"></span> The build team is working. This page refreshes automatically.</p>
+  <p class="small muted">PM → architect → developer → QA. This can take several minutes.</p>
+</div>
+<script>
+  const timer = setInterval(async () => {
+    try {
+      const res = await fetch("/build/{{ workflow.id }}/status");
+      const data = await res.json();
+      if (data.status === "done" || data.status === "failed") {
+        clearInterval(timer);
+        window.location.reload();
+      }
+    } catch (e) {}
+  }, 4000);
+</script>
+{% endif %}
+
+{% if workflow.error %}
+<div class="banner error"><strong>Build failed.</strong><div class="small mono" style="margin-top: 6px;">{{ workflow.error }}</div></div>
+{% endif %}
+
+<h2>Agent calls</h2>
+{% if agent_runs %}
+<div class="card table-wrap">
+  <table>
+    <thead><tr><th>#</th><th>Role</th><th>Status</th><th>Model</th><th>Tokens</th><th>Error</th></tr></thead>
+    <tbody>
+    {% for run in agent_runs %}
+      <tr>
+        <td>{{ run.id }}</td>
+        <td><strong>{{ run.role }}</strong></td>
+        <td><span class="badge {{ run.status }}">{{ run.status }}</span></td>
+        <td class="small muted">{{ run.provider }} / {{ run.model }}</td>
+        <td class="small muted">{{ run.prompt_tokens }} + {{ run.completion_tokens }}</td>
+        <td class="small muted">{{ run.error or "—" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty">No agent calls recorded yet.</div>
+{% endif %}
+
+<h2>Artifacts</h2>
+{% if artifacts %}
+<div class="card">
+  {% for artifact in artifacts %}
+  <div class="artifact">
+    <h4>{{ artifact.name }} <span class="badge">{{ artifact.kind }}</span></h4>
+    {% if artifact.path %}<p class="small muted mono">{{ artifact.path }}</p>{% endif %}
+    {% if artifact.content %}
+    <details>
+      <summary>Preview</summary>
+      <pre>{{ artifact.content[:12000] }}</pre>
+    </details>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="empty">No artifacts yet.</div>
+{% endif %}
+{% endblock %}
