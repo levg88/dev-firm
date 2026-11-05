@@ -77,6 +77,111 @@ export interface AgentResult {
   response: LLMResponse | null;
 }
 
+function extractBracedObject(text: string, startIndex: number): string | null {
+  let i = text.indexOf('{', startIndex);
+  if (i === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let j = i; j < text.length; j++) {
+    const c = text[j];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (c === '\\\\') {
+      escaped = true;
+      continue;
+    }
+    if (c === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (c === '{') depth++;
+    else if (c === '}') {
+      depth--;
+      if (depth === 0) return text.slice(i, j + 1);
+    }
+  }
+  return null;
+}
+
+function repairJsonStrings(s: string): string {
+  let result = '';
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (escaped) {
+      result += c;
+      escaped = false;
+      continue;
+    }
+    if (c === '\\\\') {
+      result += c;
+      escaped = true;
+      continue;
+    }
+    if (c === '"') {
+      inString = !inString;
+      result += c;
+      continue;
+    }
+    if (inString) {
+      if (c === '\n') {
+        result += '\\\\n';
+        continue;
+      }
+      if (c === '\r') {
+        result += '\\\\r';
+        continue;
+      }
+      if (c === '\t') {
+        result += '\\\\t';
+        continue;
+      }
+    }
+    result += c;
+  }
+  return result;
+}
+
+const KNOWN_TOOLS = new Set(['write_file', 'read_file', 'list_files', 'run_command']);
+
+/** Some weaker models emit tool calls as text instead of using the function-calling API. */
+function extractTextToolCall(text: string): ToolCall | null {
+  const nameMatch = text.match(/"name"\s*:\s*"([a-zA-Z_][a-zA-Z0-9_]*)"/);
+  if (!nameMatch) return null;
+  const name = nameMatch[1];
+  if (!KNOWN_TOOLS.has(name)) return null;
+
+  // Find args under "parameters" or "arguments".
+  let args: Record<string, unknown> = {};
+  const keyMatch = text.match(/"(?:parameters|arguments)"\s*:/);
+  if (keyMatch && keyMatch.index !== undefined) {
+    const obj = extractBracedObject(text, keyMatch.index + keyMatch[0].length);
+    if (obj) {
+      try {
+        const parsed = JSON.parse(obj);
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+          args = parsed as Record<string, unknown>;
+        }
+      } catch {
+        try {
+          const parsed = JSON.parse(repairJsonStrings(obj));
+          if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+            args = parsed as Record<string, unknown>;
+          }
+        } catch {
+          // Give up on args; the tool will report the missing fields.
+        }
+      }
+    }
+  }
+  return { id: `text_${Date.now()}`, name, arguments: args };
+}
+
 function schemaJson(schema: ZodType): string {
   try {
     return JSON.stringify(toJSONSchema(schema, { io: 'input' }), null, 2);
@@ -139,6 +244,15 @@ export class Agent {
       promptTokens += llmResponse.promptTokens;
       completionTokens += llmResponse.completionTokens;
 
+      // Some weaker local models emit tool calls as text instead of using the
+      // function-calling API. Detect and recover those so the run can proceed.
+      if (llmResponse.toolCalls.length === 0 && toolSchemas.length > 0) {
+        const extracted = extractTextToolCall(llmResponse.text);
+        if (extracted) {
+          llmResponse.toolCalls.push(extracted);
+        }
+      }
+
       if (llmResponse.toolCalls.length) {
         const assistantCalls = llmResponse.toolCalls.map((call) => ({
           id: call.id,
@@ -188,7 +302,7 @@ export class Agent {
         };
       } catch (error) {
         jsonAttempts += 1;
-        if (jsonAttempts > 1) {
+        if (jsonAttempts > 2) {
           throw new AgentError(error instanceof Error ? error.message : String(error));
         }
         messages.push({ role: 'assistant', content: llmResponse.text });
