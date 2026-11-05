@@ -1,12 +1,15 @@
 # Dev Firm
 
 A small, local-first **boutique software development firm run by agents**. Describe an
-application and a four-role team takes it from brief to tested code:
+application and a five-role team takes it from brief to tested code:
 
-**Product Manager → Architect → Developer → QA**
+**Product Manager → Architect → Developer → Tech Lead → QA**
 
-The developer writes real files into an isolated workspace, QA runs the test suite, and
-every agent call and artifact is recorded in a local SQLite database.
+The firm first validates the target project (typecheck, build, tests), then the product
+manager writes the PRD, the architect writes the design documents, the developer writes the
+code, the tech lead reviews against the PRD and design, and QA runs the test suite. Every
+agent call and artifact is recorded in a local SQLite database, and the produced documents
+and code are committed to git along the way.
 
 > This is the development firm. The career firm (Office Manager, Headhunter, Resume
 > Writer) lives separately at
@@ -35,9 +38,14 @@ every agent call and artifact is recorded in a local SQLite database.
                     └────────┬─────────┘
                              │
                     ┌────────▼─────────┐
+                    │     Tech Lead    │  code review against the
+                    │      agent       │  PRD and design docs
+                    └────────┬─────────┘
+                             │
+                    ┌────────▼─────────┐
                     │       QA         │  acceptance check, test run,
                     │      agent       │  pass/fail report + feedback loop
-                    └────────┬─────────┘
+                    └────────┴─────────┘
                              │
                  ┌───────────▼────────────┐
                  │ SQLite + workspace     │  workflows, agent calls,
@@ -52,10 +60,11 @@ every agent call and artifact is recorded in a local SQLite database.
 | **Product Manager** | Turns a rough brief into a scoped, build-ready product specification. | Spec, user stories, acceptance criteria, non-goals, risks |
 | **Architect** | Designs the smallest implementable architecture and a concrete file plan. | Stack, file plan, data model, interfaces, test plan |
 | **Developer** | Implements the app with real file and command tools inside a sandboxed workspace. | Working files, tests run, implementation report |
+| **Tech Lead** | Reviews the delivered code against the PRD and design documents. | Review verdict, summary, blocking issues |
 | **QA** | Reviews the result against the acceptance criteria and runs the test suite. | Pass/fail report, issues, recommendation |
 
-If QA fails, the developer gets one feedback pass to fix the implementation before the
-workflow finishes.
+If the tech lead raises blocking issues, the workflow continues to QA; if QA fails, the
+developer gets one feedback pass to fix the implementation before the workflow finishes.
 
 ---
 
@@ -111,12 +120,28 @@ the background, so the page refreshes itself until the team is done.
 npm run cli -- init                          Initialise the database and data directories
 npm run cli -- config                      Print effective config (no secrets)
 npm run cli -- doctor                      Check provider, dependencies, and DB stats
-npm run cli -- build "BRIEF" --title "T"  Run PM → architect → developer → QA
+npm run cli -- build "BRIEF" --title "T"  Run validate → PM → architect → developer → tech lead → QA
 npm run cli -- serve --host 127.0.0.1 --port 8766
 npm run cli -- agents --prompt product_manager    List roles / print a role prompt
 ```
 
 `--home DIR` overrides the data directory for any command.
+
+### Building out the career firm repo
+
+Pass a repository path to run the team against an existing codebase instead of a fresh
+workspace:
+
+```bash
+npm run cli -- build "Add dark mode to the career firm" \
+  --title "Career firm dark mode" \
+  --repo /Users/levg/Workspace/career-firm
+```
+
+The pipeline then validates the target project (typecheck, build, tests), the product
+writes the PRD and commits it, the architect writes the design documents, the developer
+writes the code, the tech lead reviews against the PRD and design, QA runs the tests, and
+the final commit captures the new agents, documents, and code.
 
 ---
 

@@ -44,9 +44,14 @@ function currentBaseUrl(settings: Settings): string {
   return settings.activeBaseUrl;
 }
 
-async function runBuild(settings: Settings, workflowId: number, brief: string): Promise<void> {
+async function runBuild(
+  settings: Settings,
+  workflowId: number,
+  brief: string,
+  repoPath?: string,
+): Promise<void> {
   try {
-    await new BuildService(settings).execute(workflowId, brief);
+    await new BuildService(settings).execute(workflowId, brief, repoPath);
   } catch {
     // The service records the failure on the workflow.
   }
@@ -270,16 +275,17 @@ export function createApp(initialSettings?: Settings): express.Express {
       page(res, 'build', { workflows, error: 'Describe the app you want to build.', active: 'build' }, 400);
       return;
     }
+    const repoPath = bodyString(req, 'repo_path').trim() || undefined;
     const workflowId = db.withSession(settings.dbPath, (conn) =>
       db.createWorkflow(
         conn,
         'build',
         bodyString(req, 'title').trim() || brief.trim().slice(0, 80),
-        { brief: brief.trim() },
+        { brief: brief.trim(), repo_path: repoPath ?? '' },
       ),
     );
     setImmediate(() => {
-      void runBuild(settings, workflowId, brief.trim());
+      void runBuild(settings, workflowId, brief.trim(), repoPath);
     });
     res.redirect(303, `/build/${workflowId}`);
   });

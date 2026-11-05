@@ -15,11 +15,12 @@ describe('build pipeline', () => {
     expect(workflow?.status).toBe('done');
     expect(artifacts.length).toBeGreaterThanOrEqual(5);
     const names = new Set(artifacts.map((artifact) => artifact.name));
-    for (const required of ['product_spec.md', 'architecture.md', 'qa_report.md']) {
+    for (const required of ['product_spec.md', 'architecture.md', 'tech_lead_report.md', 'qa_report.md']) {
       expect(names.has(required)).toBe(true);
     }
     for (const artifact of artifacts) {
       expect(String(artifact.content ?? '')).toBeTruthy();
     }
+    expect(result.tech_lead).toBeDefined();
   });
 });

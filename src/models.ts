@@ -100,8 +100,18 @@ export const developerReportSchema = z.object({
   known_issues: z.preprocess((value) => asList(value), z.array(z.string()).default([])),
 });
 
+export const techLeadReviewSchema = z.object({
+  verdict: z.preprocess(
+    (value) => value === true || value === 'true' || value === 'True',
+    z.boolean().default(false),
+  ),
+  summary: textField,
+  issues: listField,
+});
+
 export type QAReport = z.infer<typeof qaReportSchema>;
 export type ProductSpec = z.infer<typeof productSpecSchema>;
 export type Architecture = z.infer<typeof architectureSchema>;
 export type DeveloperReport = z.infer<typeof developerReportSchema>;
 export type FilePlan = z.infer<typeof filePlanSchema>;
+export type TechLeadReview = z.infer<typeof techLeadReviewSchema>;

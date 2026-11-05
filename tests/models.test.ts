@@ -5,6 +5,7 @@ import {
   developerReportSchema,
   productSpecSchema,
   qaReportSchema,
+  techLeadReviewSchema,
 } from '../src/agents/build_schemas';
 
 describe('build schemas', () => {
@@ -18,6 +19,17 @@ describe('build schemas', () => {
     expect(report.passed).toBe(true);
     expect(report.issues).toEqual(['minor naming']);
     expect(report.tests_run).toEqual(['pytest: test_app.py']);
+  });
+
+  it('accepts tech lead review loose list shapes', () => {
+    const review = techLeadReviewSchema.parse({
+      verdict: true,
+      summary: 'Looks aligned',
+      issues: 'minor naming',
+    });
+    expect(review.verdict).toBe(true);
+    expect(review.summary).toBe('Looks aligned');
+    expect(review.issues).toEqual(['minor naming']);
   });
 
   it('fills defaults for empty model output', () => {

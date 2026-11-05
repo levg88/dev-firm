@@ -3,6 +3,7 @@ export { architectureSchema,
   filePlanSchema,
   productSpecSchema,
   qaReportSchema,
+  techLeadReviewSchema,
 } from '../models';
 export type {
   Architecture,
@@ -10,4 +11,5 @@ export type {
   FilePlan,
   ProductSpec,
   QAReport,
+  TechLeadReview,
 } from '../models';

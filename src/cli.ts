@@ -98,7 +98,7 @@ async function cmdBuild(settings: Settings, positionals: string[], options: Reco
   db.initDb(settings.dbPath);
   console.log('Running the PM → architect → developer → QA pipeline...');
   try {
-    const result = await new BuildService(settings).run(brief, optionString(options, 'title'));
+    const result = await new BuildService(settings).run(brief, optionString(options, 'title'), optionString(options, 'repo') || undefined);
     console.log(`Workflow #${result.workflow_id}`);
     console.log(`  workspace: ${result.workspace}`);
     if (result.mock) {
@@ -152,7 +152,7 @@ commands:
   init                 Initialise the local database and data directories
   config               Print the effective configuration
   doctor               Check provider, dependencies, and database stats
-  build <brief> [--title T]   Run the PM/architect/developer/QA pipeline
+  build <brief> [--title T] [--repo PATH]   Run validate → PM → architect → developer → tech lead → QA
   serve                Run the local web app (--host/--port)
   agents              List agent roles or print a role prompt (--prompt ROLE)
 `;

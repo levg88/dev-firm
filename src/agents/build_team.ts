@@ -5,18 +5,21 @@ import { Developer } from './developer';
 import { ProductManager } from './product_manager';
 import { QA } from './qa';
 import { Sandbox } from './tools';
+import { TechLead } from './tech_lead';
 
 export class BuildAgents {
   private readonly _pm: ProductManager;
   private readonly _architect: Architect;
   private readonly _developer: Developer;
   private readonly _qa: QA;
+  private readonly _tech_lead: TechLead;
 
   constructor(private readonly settings: Settings, private readonly llm: LLMClient) {
     this._pm = new ProductManager(settings, llm);
     this._architect = new Architect(settings, llm);
     this._developer = new Developer(settings, llm);
     this._qa = new QA(settings, llm);
+    this._tech_lead = new TechLead(settings, llm);
   }
 
   pm(brief: string, options: { workflowRunId?: number | null } = {}): Promise<import('./base').AgentResult> {
@@ -46,5 +49,14 @@ export class BuildAgents {
     options: { workflowRunId?: number | null } = {},
   ): Promise<import('./base').AgentResult> {
     return this._qa.run(spec as never, architecture as never, sandbox, options);
+  }
+
+  tech_lead(
+    spec: unknown,
+    architecture: unknown,
+    developer: unknown,
+    options: { workflowRunId?: number | null } = {},
+  ): Promise<import('./base').AgentResult> {
+    return this._tech_lead.run(spec as never, architecture as never, developer as never, options);
   }
 }

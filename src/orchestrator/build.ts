@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 import { Settings } from '../config';
 import * as db from '../db';
@@ -9,10 +10,12 @@ import {
   DeveloperReport,
   ProductSpec,
   QAReport,
+  TechLeadReview,
   architectureSchema,
   developerReportSchema,
   productSpecSchema,
   qaReportSchema,
+  techLeadReviewSchema,
 } from '../agents/build_schemas';
 import { AgentResult } from '../agents/base';
 import { BuildAgents } from '../agents/build_team';
@@ -25,6 +28,7 @@ export interface BuildResult {
   spec: Record<string, any>;
   architecture: Record<string, any>;
   developer: Record<string, any>;
+  tech_lead: Record<string, any>;
   qa: Record<string, any>;
 }
 
@@ -39,21 +43,23 @@ export class BuildService {
     this.agents = new BuildAgents(settings, this.llm);
   }
 
-  async run(brief: string, title = ''): Promise<BuildResult> {
+  async run(brief: string, title = '', repoPath?: string): Promise<BuildResult> {
     const workflowId = db.withSession(this.settings.dbPath, (conn) =>
-      db.createWorkflow(conn, 'build', title || brief.slice(0, 80), { brief }),
+      db.createWorkflow(conn, 'build', title || brief.slice(0, 80), { brief, repo_path: repoPath ?? '' }),
     );
-    return this.execute(workflowId, brief);
+    return this.execute(workflowId, brief, repoPath);
   }
 
-  async execute(workflowId: number, brief: string): Promise<BuildResult> {
+  async execute(workflowId: number, brief: string, repoPath?: string): Promise<BuildResult> {
     const workflow = db.withSession(this.settings.dbPath, (conn) =>
       db.getWorkflow(conn, workflowId),
     );
     if (!workflow) throw new Error(`Build run ${workflowId} not found`);
-    const workspace = String(
-      workflow.workspace_path || path.join(this.settings.runsDir, `build_${workflowId}`, 'workspace'),
-    );
+    const workspace = repoPath
+      ? path.resolve(repoPath)
+      : String(
+          workflow.workspace_path || path.join(this.settings.runsDir, "build_" + workflowId, "workspace"),
+        );
     db.withSession(this.settings.dbPath, (conn) =>
       db.updateWorkflow(conn, workflowId, { status: 'running', workspace_path: workspace }),
     );
@@ -77,6 +83,7 @@ export class BuildService {
         spec: (output as Record<string, any>).spec ?? {},
         architecture: (output as Record<string, any>).architecture ?? {},
         developer: (output as Record<string, any>).developer ?? {},
+        tech_lead: (output as Record<string, any>).tech_lead ?? {},
         qa: (output as Record<string, any>).qa ?? {},
       };
     } catch (error) {
@@ -94,11 +101,14 @@ export class BuildService {
 
   private async _realBuild(workflowId: number, workspace: string, brief: string): Promise<Record<string, any>> {
     const sandbox = new Sandbox(workspace);
-    const pmResult = await this.agents.pm(brief, { workflowRunId: workflowId });
+    const validation = await this._validate(workflowId, workspace, sandbox);
+    const pmTask = validation ? `Project validation:\n${validation}\n\nBrief for the product manager:\n${brief}` : brief;
+    const pmResult = await this.agents.pm(pmTask, { workflowRunId: workflowId });
     const spec = productSpecSchema.parse(pmResult.data ?? {});
     const specMd = spec.markdown || this._specMarkdown(spec, brief);
     this._artifact(workflowId, workspace, 'product_spec.md', specMd);
     this._artifact(workflowId, workspace, 'product_spec.json', JSON.stringify(spec));
+    this._commit(workspace, `dev-firm: product spec (${brief.slice(0, 60)})`);
 
     const archResult = await this.agents.architect(spec, { workflowRunId: workflowId });
     const architecture = architectureSchema.parse(archResult.data ?? {});
@@ -112,6 +122,11 @@ export class BuildService {
     const devReport = developerReportSchema.parse(devResult.data ?? {});
     this._artifact(workflowId, workspace, 'developer_report.md', this._developerMarkdown(devReport));
     this._artifact(workflowId, workspace, 'developer_report.json', JSON.stringify(devReport));
+
+    const tlResult = await this.agents.tech_lead(spec, architecture, devReport, { workflowRunId: workflowId });
+    const techLead = techLeadReviewSchema.parse(tlResult.data ?? {});
+    this._artifact(workflowId, workspace, 'tech_lead_report.md', this._techLeadMarkdown(techLead));
+    this._artifact(workflowId, workspace, 'tech_lead_report.json', JSON.stringify(techLead));
 
     const qaResult = await this.agents.qa(spec, architecture, sandbox, { workflowRunId: workflowId });
     const qa = qaReportSchema.parse(qaResult.data ?? {});
@@ -131,18 +146,36 @@ export class BuildService {
         spec: JSON.parse(JSON.stringify(spec)),
         architecture: JSON.parse(JSON.stringify(architecture)),
         developer: JSON.parse(JSON.stringify(retryReport)),
+        tech_lead: JSON.parse(JSON.stringify(techLead)),
         qa: JSON.parse(JSON.stringify(retryQa)),
       };
     }
 
     this._artifact(workflowId, workspace, 'qa_report.md', this._qaMarkdown(qa));
+    this._commit(workspace, `dev-firm: build (${brief.slice(0, 60)})`);
     return {
       workspace,
       spec: JSON.parse(JSON.stringify(spec)),
       architecture: JSON.parse(JSON.stringify(architecture)),
       developer: JSON.parse(JSON.stringify(devReport)),
+      tech_lead: JSON.parse(JSON.stringify(techLead)),
       qa: JSON.parse(JSON.stringify(qa)),
     };
+  }
+
+  private async _validate(workflowId: number, workspace: string, sandbox: Sandbox): Promise<string> {
+    const sections: string[] = [];
+    for (const script of ['typecheck', 'build', 'test']) {
+      const result = await sandbox.runCommand({ command: `npm run ${script}`, timeout: 120000 });
+      const ok = (result as Record<string, any>).ok === true;
+      const detail = ok
+        ? String((result as Record<string, any>).stdout ?? '')
+        : String((result as Record<string, any>).error ?? (result as Record<string, any>).stderr ?? (result as Record<string, any>).stdout ?? '');
+      sections.push(`### npm run ${script}\nstatus: ${ok ? 'ok' : 'failed'}\n${detail.slice(0, 3000)}`);
+    }
+    const validation = [`# Project validation\n`, ...sections].join('\n\n');
+    this._artifact(workflowId, workspace, 'validation.md', validation);
+    return validation;
   }
 
   private _mockBuild(workflowId: number, workspace: string, brief: string): Record<string, any> {
@@ -173,6 +206,11 @@ export class BuildService {
       tests_run: [],
       known_issues: [],
     };
+    const techLead: TechLeadReview = {
+      verdict: true,
+      summary: 'Mock tech lead review passed.',
+      issues: [],
+    };
     const qa: QAReport = {
       passed: true,
       summary: 'Mock pipeline completed. Configure a provider for real output.',
@@ -186,14 +224,26 @@ export class BuildService {
     this._artifact(workflowId, workspace, 'architecture.md', String(architecture.markdown));
     this._artifact(workflowId, workspace, 'architecture.json', JSON.stringify(architecture));
     this._artifact(workflowId, workspace, 'developer_report.md', this._developerMarkdown(developer));
+    this._artifact(workflowId, workspace, 'tech_lead_report.md', this._techLeadMarkdown(techLead));
+    this._artifact(workflowId, workspace, 'tech_lead_report.json', JSON.stringify(techLead));
     this._artifact(workflowId, workspace, 'qa_report.md', this._qaMarkdown(qa));
     return {
       mock: true,
       spec,
       architecture,
       developer,
+      tech_lead: techLead,
       qa,
     };
+  }
+
+  private _commit(workspace: string, message: string): void {
+    try {
+      execFileSync('git', ['add', '-A'], { cwd: workspace, stdio: 'ignore', timeout: 30000 });
+      execFileSync('git', ['commit', '-m', message], { cwd: workspace, stdio: 'ignore', timeout: 60000 });
+    } catch {
+      // Best effort: the workspace may not be a git repository.
+    }
   }
 
   private _artifact(workflowId: number, workspace: string, name: string, content: string): void {
@@ -240,12 +290,19 @@ export class BuildService {
     return parts.join('\n');
   }
 
+  private _techLeadMarkdown(report: TechLeadReview): string {
+    const verdict = report.verdict ? 'PASS' : 'FAIL';
+    const parts: string[] = [`# Tech lead review\n\n**Verdict:** ${verdict}\n`, report.summary, '\n## Issues'];
+    parts.push(...report.issues.map((item) => `- ${item}`));
+    return parts.join('\n');
+  }
+
   private _qaMarkdown(report: QAReport): string {
     const verdict = report.passed ? 'PASS' : 'FAIL';
     const parts: string[] = [`# QA report\n\n**Verdict:** ${verdict}\n`, report.summary, '\n## Tests run'];
     parts.push(...report.tests_run.map((item: string) => `- ${item}`));
     parts.push('\n## Issues');
-    parts.push(...report.issues.map((item: string) => `- ${item}`));
+    parts.push(...report.issues.map((item) => `- ${item}`));
     parts.push('\n## Recommendation', report.recommendation);
     return parts.join('\n');
   }
