@@ -1,0 +1,54 @@
+<%- include("partials/header", { title: "Runs · Dev Firm" }) %>
+<h1>Audit trail</h1>
+<p class="lead">
+  Every build and model call is recorded locally: what was asked, which role answered,
+  how many tokens it used, and what it produced.
+</p>
+
+<h2>Build workflows</h2>
+<% if (workflows && workflows.length) { %>
+<div class="card table-wrap">
+  <table>
+    <thead><tr><th>#</th><th>Kind</th><th>Title</th><th>Status</th><th>Created</th><th></th></tr></thead>
+    <tbody>
+    <% for (const workflow of workflows) { %>
+      <tr>
+        <td><%= workflow.id %></td>
+        <td><span class="badge"><%= workflow.kind %></span></td>
+        <td><%= workflow.title %></td>
+        <td><span class="badge <%= workflow.status %>"><%= workflow.status %></span></td>
+        <td class="small muted"><%= String(workflow.created_at || "").slice(0, 16).replace("T", " ") %></td>
+        <td><a class="small" href="/build/<%= workflow.id %>">Open →</a></td>
+      </tr>
+    <% } %>
+    </tbody>
+  </table>
+</div>
+<% } else { %>
+<div class="empty">No workflows recorded yet.</div>
+<% } %>
+
+<h2>Agent calls</h2>
+<% if (agent_runs && agent_runs.length) { %>
+<div class="card table-wrap">
+  <table>
+    <thead><tr><th>#</th><th>Role</th><th>Workflow</th><th>Status</th><th>Provider / model</th><th>Tokens</th><th>Started</th></tr></thead>
+    <tbody>
+    <% for (const run of agent_runs) { %>
+      <tr>
+        <td><%= run.id %></td>
+        <td><strong><%= run.role %></strong></td>
+        <td class="small muted"><%= run.workflow %></td>
+        <td><span class="badge <%= run.status %>"><%= run.status %></span></td>
+        <td class="small muted"><%= run.provider %> / <%= run.model %></td>
+        <td class="small muted"><%= run.prompt_tokens %> + <%= run.completion_tokens %></td>
+        <td class="small muted"><%= String(run.created_at || "").slice(0, 16).replace("T", " ") %></td>
+      </tr>
+    <% } %>
+    </tbody>
+  </table>
+</div>
+<% } else { %>
+<div class="empty">No agent calls yet. Start a build to create the first audit record.</div>
+<% } %>
+<%- include("partials/footer") %>

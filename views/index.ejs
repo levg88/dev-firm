@@ -1,0 +1,74 @@
+<%- include("partials/header") %>
+<div class="split">
+  <div class="grow">
+    <h1>Your boutique development firm</h1>
+    <p class="lead">
+      Describe an application and a four-role agent team takes it from brief to tested
+      code: product manager, architect, developer, and QA. Every run gets its own
+      isolated workspace and a complete audit trail.
+    </p>
+  </div>
+  <a class="button" href="/build">Start a build</a>
+</div>
+
+<div class="grid three" style="margin-top: 20px;">
+  <section class="card compact">
+    <div class="stat"><%= stats.workflow_runs %></div>
+    <div class="stat-label">Builds run</div>
+    <p class="small muted" style="margin: 8px 0 0;">Brief → spec → architecture → code → QA</p>
+  </section>
+  <section class="card compact">
+    <div class="stat"><%= stats.agent_runs %></div>
+    <div class="stat-label">Agent calls recorded</div>
+    <p class="small muted" style="margin: 8px 0 0;"><%= stats.artifacts %> artifacts stored</p>
+  </section>
+  <section class="card compact">
+    <div class="stat"><%= settings.model %></div>
+    <div class="stat-label"><%= settings.provider %></div>
+    <p class="small muted" style="margin: 8px 0 0;">Configure in Settings</p>
+  </section>
+</div>
+
+<h2>The team</h2>
+<div class="grid two">
+  <section class="card">
+    <h3>Product Manager → Architect</h3>
+    <p class="small muted">
+      Turns the brief into a scoped product spec, then designs the smallest implementable
+      architecture, file plan, interfaces, and test plan.
+    </p>
+  </section>
+  <section class="card">
+    <h3>Developer → QA</h3>
+    <p class="small muted">
+      Writes real files into the run workspace and runs the tests. QA checks the
+      acceptance criteria and sends a pass/fail report.
+    </p>
+  </section>
+</div>
+
+<h2>Recent builds</h2>
+<% if (workflows && workflows.length) { %>
+<div class="card table-wrap">
+  <table>
+    <thead><tr><th>#</th><th>Title</th><th>Status</th><th>Created</th><th></th></tr></thead>
+    <tbody>
+    <% for (const workflow of workflows) { %>
+      <tr>
+        <td><%= workflow.id %></td>
+        <td><%= workflow.title %></td>
+        <td><span class="badge <%= workflow.status %>"><%= workflow.status %></span></td>
+        <td class="small muted"><%= String(workflow.created_at || "").slice(0, 16).replace("T", " ") %></td>
+        <td><a class="small" href="/build/<%= workflow.id %>">Open →</a></td>
+      </tr>
+    <% } %>
+    </tbody>
+  </table>
+</div>
+<% } else { %>
+<div class="empty">
+  No builds yet. <a href="/build">Describe your first app</a> and the team will take it
+  from there.
+</div>
+<% } %>
+<%- include("partials/footer") %>

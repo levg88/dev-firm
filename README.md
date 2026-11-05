@@ -61,14 +61,13 @@ workflow finishes.
 
 ## Quickstart
 
-Requirements: **Python 3.11+** (tested on 3.14), no Node, no Docker.
+Requirements: **Node.js 20+** and npm. No Python, no Docker.
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+npm install
 
-dev-firm serve
+npm run dev    # development server with auto-reload
+npm start      # production server (runs the TypeScript build first)
 ```
 
 Open <http://127.0.0.1:8766>. On first run a local **setup wizard** asks for your model
@@ -85,7 +84,7 @@ From the web UI: **Build lab** → describe the app → **Run the build team**.
 From the CLI:
 
 ```bash
-dev-firm build "A local CLI that manages a reading list with tags and JSON export" \
+npm run cli -- build "A local CLI that manages a reading list with tags and JSON export" \
   --title "Reading list"
 ```
 
@@ -109,12 +108,12 @@ the background, so the page refreshes itself until the team is done.
 ## CLI reference
 
 ```text
-dev-firm init                         Initialise the database and data directories
-dev-firm config                       Print effective config (no secrets)
-dev-firm doctor                       Check provider, dependencies, and DB stats
-dev-firm build "BRIEF" [--title T]    Run PM → architect → developer → QA
-dev-firm serve [--host H] [--port P]
-dev-firm agents [--prompt ROLE]       List roles / print a role prompt
+npm run cli -- init                          Initialise the database and data directories
+npm run cli -- config                      Print effective config (no secrets)
+npm run cli -- doctor                      Check provider, dependencies, and DB stats
+npm run cli -- build "BRIEF" --title "T"  Run PM → architect → developer → QA
+npm run cli -- serve --host 127.0.0.1 --port 8766
+npm run cli -- agents --prompt product_manager    List roles / print a role prompt
 ```
 
 `--home DIR` overrides the data directory for any command.
@@ -207,34 +206,33 @@ machine unless your configured model provider receives the prompt.
 
 ## Extending
 
-Each agent lives in its own package under `src/dev_firm/agents/`:
+Each agent lives in its own module under `src/agents/`:
 
 ```text
 agents/
-  product_manager/  agent.py
-  architect/        agent.py
-  developer/        agent.py
-  qa/               agent.py
-  build_team.py     facade used by the pipeline
-  build_schemas.py  Pydantic contracts between roles
-  base.py           shared Agent / AgentSpec runtime
-  runner.py         schema validation, retries, audit logging
-  tools.py          sandboxed file and command tools
-  prompts.py        system prompts for every role
+  product_manager.ts  agent
+  architect.ts        agent
+  developer.ts        agent
+  qa.ts               agent
+  build_team.ts       facade used by the pipeline
+  build_schemas.ts    zod contracts between roles
+  base.ts             shared Agent / AgentSpec runtime
+  runner.ts           schema validation, retries, audit logging
+  tools.ts            sandboxed file and command tools
+  prompts.ts          system prompts for every role
 ```
 
 To add a role:
 
-1. Add a prompt in `src/dev_firm/agents/prompts.py`.
-2. Create `src/dev_firm/agents/<name>/agent.py` with a class that wraps
-   `Agent` + `run_agent(...)`.
-3. Export it from the package `__init__.py` and from `agents/__init__.py`.
+1. Add a prompt in `src/agents/prompts.ts`.
+2. Create `src/agents/<name>.ts` with a class that wraps `Agent` + `runAgent(...)`.
+3. Export it from `src/agents/index.ts`.
 4. Wire it into `BuildAgents` and `BuildService`.
 
 ### Add a provider
 
-Implement `LLMClient.complete(...)` in `src/dev_firm/llm/`, normalize tool calls to
-`ToolCall`, and register it in `build_llm`.
+Implement `complete(...)` on an `LLMClient` subclass in `src/llm/`, normalize tool calls to
+`ToolCall`, and register it in `buildLlm` (`src/llm/index.ts`).
 
 ---
 
@@ -255,7 +253,7 @@ Implement `LLMClient.complete(...)` in `src/dev_firm/llm/`, normalize tool calls
 ## Tests
 
 ```bash
-pytest -q
+npm test
 ```
 
 Covered: the build pipeline, the agent tool-calling loop, JSON repair, sandbox guards,
