@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 
 import { Settings } from '../config';
 import * as db from '../db';
@@ -25,9 +24,10 @@ import {
 } from '../agents/build_schemas';
 import { BuildAgents } from '../agents/build_team';
 import { Sandbox } from '../agents/tools';
-import type { DeveloperRole } from '../models';
+import type { AgentRole, DeveloperRole } from '../models';
 import { createTracker } from '../tracker';
 import type { Ticket, TicketStatus, Tracker } from '../tracker';
+import { commitAs, ensureGitRepo } from './identities';
 
 export interface BuildResult {
   workflow_id: number;
@@ -107,6 +107,7 @@ export class BuildService {
       db.updateWorkflow(conn, workflowId, { status: 'running', workspace_path: workspace }),
     );
     fs.mkdirSync(workspace, { recursive: true });
+    ensureGitRepo(workspace);
 
     try {
       const output = this.settings.isMock || this.llm instanceof MockClient
@@ -250,6 +251,7 @@ export class BuildService {
         );
         item.status = 'team_review';
       }
+      this._commit(workspace, `dev-firm: architecture round ${round}`, 'architect');
 
       try {
         const reviewResult = await this.agents.team_lead(spec, architecture, items, {
@@ -272,6 +274,7 @@ export class BuildService {
         `team_lead_design_review_round${round}.md`,
         this._designReviewMarkdown(designReview),
       );
+      this._commit(workspace, `dev-firm: design review round ${round}`, 'team_lead');
       if (designReview.approved) break;
       for (const item of items) {
         await tracker.comment(
@@ -294,7 +297,7 @@ export class BuildService {
       item.status = 'in_progress';
     }
     this._ticketsArtifact(workflowId, workspace, await tracker.list());
-    this._commit(workspace, `dev-firm: architecture and design review (${brief.slice(0, 50)})`);
+    this._commit(workspace, `dev-firm: architecture and design review (${brief.slice(0, 50)})`, 'team_lead');
 
     // ── 3. delivery loop: dev → tech lead → QA (and bug loops) ─────────────
     const maxIterations = Math.max(1, this.settings.maxBuildIterations);
@@ -376,9 +379,11 @@ export class BuildService {
           );
           item.status = 'in_review';
         }
+        this._commit(workspace, `dev-firm: ${role} iteration ${iteration}`, role);
       }
 
       let review: TechLeadReview;
+      const install = await this._installDependencies(workflowId, workspace, sandbox, iteration);
       try {
         const result = await this.agents.tech_lead(spec, architecture, iterationReports, {
           workflowRunId: workflowId,
@@ -395,6 +400,16 @@ export class BuildService {
           issues: [message],
         });
       }
+      if (install.ok === false) {
+        review = techLeadReviewSchema.parse({
+          verdict: false,
+          summary: 'Dependencies do not install in the current Node runtime.',
+          issues: [
+            install.error || 'npm install failed',
+            'Fix package.json versions and run npm install again.',
+          ],
+        });
+      }
       lastReview = review;
       this._artifact(
         workflowId,
@@ -404,6 +419,7 @@ export class BuildService {
       );
       this._artifact(workflowId, workspace, 'tech_lead_report.md', this._techLeadMarkdown(review));
       this._artifact(workflowId, workspace, 'tech_lead_report.json', JSON.stringify(review));
+      this._commit(workspace, `dev-firm: tech lead review iteration ${iteration}`, 'tech_lead');
 
       if (!review.verdict) {
         const issues = review.issues.join('\n') || review.summary || 'Tech lead rejected the implementation.';
@@ -465,6 +481,7 @@ export class BuildService {
       this._artifact(workflowId, workspace, `qa_report_iter${iteration}.md`, this._qaMarkdown(qa));
       this._artifact(workflowId, workspace, 'qa_report.md', this._qaMarkdown(qa));
       this._artifact(workflowId, workspace, 'qa_report.json', JSON.stringify(qa));
+      this._commit(workspace, `dev-firm: QA iteration ${iteration}`, 'qa');
 
       if (qa.passed) {
         passed = true;
@@ -554,6 +571,7 @@ export class BuildService {
         `bug_triage_iter${iteration}.md`,
         this._triageMarkdown(triage),
       );
+      this._commit(workspace, `dev-firm: bug triage iteration ${iteration}`, 'team_lead');
       for (const bug of bugItems) {
         const role = this._assignmentFor(triage, bug);
         bug.role = role;
@@ -568,7 +586,7 @@ export class BuildService {
       }
       active = bugItems;
       this._ticketsArtifact(workflowId, workspace, await tracker.list());
-      this._commit(workspace, `dev-firm: QA iteration ${iteration} (${bugItems.length} bugs)`);
+      this._commit(workspace, `dev-firm: QA iteration ${iteration} (${bugItems.length} bugs)`, 'qa');
     }
 
     if (!passed) {
@@ -588,7 +606,7 @@ export class BuildService {
 
     const tickets = await tracker.list();
     this._ticketsArtifact(workflowId, workspace, tickets);
-    this._commit(workspace, `dev-firm: build (${brief.slice(0, 60)})`);
+    this._commit(workspace, `dev-firm: build (${brief.slice(0, 60)})`, 'qa');
 
     return {
       project,
@@ -876,6 +894,36 @@ export class BuildService {
     return parts.join('\n');
   }
 
+  private async _installDependencies(
+    workflowId: number,
+    workspace: string,
+    sandbox: Sandbox,
+    iteration: number,
+  ): Promise<{ ok: boolean; error?: string; skipped?: boolean }> {
+    const pkgPath = path.join(workspace, 'package.json');
+    if (!fs.existsSync(pkgPath)) return { ok: true, skipped: true };
+    const result = await sandbox.runCommand({
+      command: 'npm install --no-audit --no-fund',
+      timeout: 240,
+    });
+    const ok = (result as Record<string, any>).ok === true;
+    const detail = ok
+      ? String((result as Record<string, any>).stdout ?? '')
+      : String(
+          (result as Record<string, any>).error ??
+            (result as Record<string, any>).stderr ??
+            (result as Record<string, any>).stdout ??
+            '',
+        );
+    this._artifact(
+      workflowId,
+      workspace,
+      `install_iter${iteration}.md`,
+      `# npm install (iteration ${iteration})\n\nstatus: ${ok ? 'ok' : 'failed'}\n\n${detail.slice(0, 4000)}`,
+    );
+    return { ok, error: ok ? undefined : detail.slice(-2000) || 'npm install failed' };
+  }
+
   private async _validate(workflowId: number, workspace: string, sandbox: Sandbox): Promise<string> {
     const pkgPath = path.join(workspace, 'package.json');
     if (!fs.existsSync(pkgPath)) {
@@ -885,6 +933,18 @@ export class BuildService {
       return validation;
     }
     const sections: string[] = [];
+    const install = await sandbox.runCommand({
+      command: 'npm install --no-audit --no-fund',
+      timeout: 240,
+    });
+    sections.push(
+      `### npm install\nstatus: ${(install as Record<string, any>).ok === true ? 'ok' : 'failed'}\n${String(
+        (install as Record<string, any>).error ??
+          (install as Record<string, any>).stderr ??
+          (install as Record<string, any>).stdout ??
+          '',
+      ).slice(0, 3000)}`,
+    );
     for (const script of ['typecheck', 'build', 'test']) {
       const result = await sandbox.runCommand({ command: `npm run ${script}`, timeout: 120000 });
       const ok = (result as Record<string, any>).ok === true;
@@ -903,13 +963,8 @@ export class BuildService {
     return validation;
   }
 
-  private _commit(workspace: string, message: string): void {
-    try {
-      execFileSync('git', ['add', '-A'], { cwd: workspace, stdio: 'ignore', timeout: 30000 });
-      execFileSync('git', ['commit', '-m', message], { cwd: workspace, stdio: 'ignore', timeout: 60000 });
-    } catch {
-      // Best effort: the workspace may not be a git repository.
-    }
+  private _commit(workspace: string, message: string, role: AgentRole | string = 'product_manager'): void {
+    commitAs(workspace, role, `[${role}] ${message}`);
   }
 
   private _artifact(workflowId: number, workspace: string, name: string, content: string): void {
@@ -1040,12 +1095,15 @@ export class BuildService {
     const parts: string[] = [
       '# Task tracker',
       '',
-      '| Key | Type | Title | Status | Assignee | Parent | Jira |',
+      '| Key | Type | Title | Status | Assignee | Parent | GitHub |',
       '|---|---|---|---|---|---|---|',
     ];
     for (const ticket of tickets) {
+      const external = ticket.external_key
+        ? `[${ticket.external_key}](${ticket.external_url || ticket.external_key})`
+        : '—';
       parts.push(
-        `| ${ticket.key} | ${ticket.type} | ${String(ticket.title).replace(/\|/g, '\\|')} | ${ticket.status} | ${ticket.assignee || '—'} | ${ticket.parent_key || '—'} | ${ticket.jira_key || '—'} |`,
+        `| ${ticket.key} | ${ticket.type} | ${String(ticket.title).replace(/\|/g, '\\|')} | ${ticket.status} | ${ticket.assignee || '—'} | ${ticket.parent_key || '—'} | ${external} |`,
       );
     }
     return parts.join('\n');

@@ -209,26 +209,26 @@ export function createApp(initialSettings?: Settings): express.Express {
       host: settings.host,
       port: String(settings.port),
       setup_complete: 'true',
-      jira_enabled: bodyBool(req, 'jira_enabled') ? 'true' : 'false',
-      jira_base_url:
-        bodyString(req, 'jira_base_url').trim() ||
-        settings.jiraBaseUrl ||
-        'https://agentsvibecoding.atlassian.net',
-      jira_email: bodyString(req, 'jira_email').trim(),
-      jira_project_key: bodyString(req, 'jira_project_key').trim() || settings.jiraProjectKey,
-      jira_project_name: bodyString(req, 'jira_project_name').trim() || settings.jiraProjectName,
-      jira_auto_create: bodyBool(req, 'jira_auto_create') ? 'true' : 'false',
-      jira_default_account_id: bodyString(req, 'jira_default_account_id').trim(),
+      ticket_prefix: bodyString(req, 'ticket_prefix').trim() || settings.ticketPrefix,
+      github_enabled: bodyBool(req, 'github_enabled') ? 'true' : 'false',
+      github_owner: bodyString(req, 'github_owner').trim() || settings.githubOwner,
+      github_repo: bodyString(req, 'github_repo').trim() || settings.githubRepo,
+      github_project_title:
+        bodyString(req, 'github_project_title').trim() || settings.githubProjectTitle,
+      github_project_number:
+        bodyString(req, 'github_project_number').trim() || String(settings.githubProjectNumber),
+      github_auto_create: bodyBool(req, 'github_auto_create') ? 'true' : 'false',
+      github_default_assignee: bodyString(req, 'github_default_assignee').trim(),
     };
-    const jiraTokenCleared = bodyBool(req, 'clear_jira_token');
-    const enteredJiraToken = jiraTokenCleared
+    const githubTokenCleared = bodyBool(req, 'clear_github_token');
+    const enteredGithubToken = githubTokenCleared
       ? ''
-      : bodyString(req, 'jira_api_token').trim();
-    if (jiraTokenCleared || enteredJiraToken) {
-      updates.jira_api_token = enteredJiraToken;
+      : bodyString(req, 'github_token').trim();
+    if (githubTokenCleared || enteredGithubToken) {
+      updates.github_token = enteredGithubToken;
     }
-    const jiraAssignees = bodyString(req, 'jira_assignees_json').trim();
-    if (jiraAssignees) updates.jira_assignees_json = jiraAssignees;
+    const githubAssignees = bodyString(req, 'github_assignees_json').trim();
+    if (githubAssignees) updates.github_assignees_json = githubAssignees;
     if (provider === 'anthropic') updates.anthropic_base_url = resolvedBase;
     else if (provider === 'ollama') updates.ollama_base_url = resolvedBase;
     else if (provider === 'opencode') updates.opencode_base_url = resolvedBase;

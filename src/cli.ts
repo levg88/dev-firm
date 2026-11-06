@@ -6,7 +6,7 @@ import * as db from './db';
 import { BuildService } from './orchestrator/build';
 import { buildLlm, MockClient } from './llm';
 import { applyStoredSettings } from './runtime';
-import { createTracker } from './tracker';
+import { createTracker, GitHubTracker } from './tracker';
 
 interface ParsedArguments {
   positionals: string[];
@@ -163,64 +163,82 @@ function cmdAgents(options: Record<string, string | boolean>): number {
   return 0;
 }
 
-async function cmdJira(
+async function cmdGithub(
   settings: Settings,
   positionals: string[],
   options: Record<string, string | boolean>,
 ): Promise<number> {
   db.initDb(settings.dbPath);
-  if (optionString(options, 'project-key')) {
-    settings.jiraProjectKey = optionString(options, 'project-key')
-      .trim()
-      .toUpperCase()
-      .replace(/[^A-Z0-9]+/g, '');
+  if (optionString(options, 'owner')) settings.githubOwner = optionString(options, 'owner').trim();
+  if (optionString(options, 'repo')) settings.githubRepo = optionString(options, 'repo').trim();
+  if (optionString(options, 'title')) {
+    settings.githubProjectTitle = optionString(options, 'title').trim();
   }
-  if (optionString(options, 'project-name')) {
-    settings.jiraProjectName = optionString(options, 'project-name').trim();
+  if (optionString(options, 'project')) {
+    settings.githubProjectNumber = Number.parseInt(optionString(options, 'project'), 10) || 0;
+  }
+  if (optionString(options, 'prefix')) {
+    settings.ticketPrefix =
+      optionString(options, 'prefix').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '') || 'CAREER';
   }
   const subcommand = positionals[0] || 'status';
   if (subcommand === 'status') {
-    console.log('Jira integration');
-    console.log(`  enabled: ${settings.jiraEnabled ? 'yes' : 'no'}`);
-    console.log(`  configured: ${settings.jiraConfigured ? 'yes' : 'no'}`);
-    console.log(`  site: ${settings.jiraBaseUrl}`);
-    console.log(`  project: ${settings.jiraProjectKey} (${settings.jiraProjectName})`);
-    console.log(`  email: ${settings.jiraEmail || '(not set)'}`);
-    console.log(`  token: ${settings.jiraTokenHint || '(not set)'}`);
-    if (!settings.jiraConfigured) {
+    console.log('GitHub Projects integration');
+    console.log(`  enabled: ${settings.githubEnabled ? 'yes' : 'no'}`);
+    console.log(`  configured: ${settings.githubConfigured ? 'yes' : 'no'}`);
+    console.log(`  repository: ${settings.githubOwner}/${settings.githubRepo}`);
+    console.log(`  project: ${settings.githubProjectTitle} (#${settings.githubProjectNumber || 'auto'})`);
+    console.log(`  ticket prefix: ${settings.ticketPrefix}`);
+    console.log(`  token: ${settings.githubTokenHint || '(using gh CLI login)'}`);
+    if (!settings.githubConfigured) {
       console.log(
-        '  Set JIRA_EMAIL and JIRA_API_TOKEN (or use Settings) to enable remote sync. Local tickets always work.',
+        '  Enable sync with: dev-firm github init  (the local ticket board always works).',
       );
       return 0;
     }
     const tracker = createTracker(settings);
     const project = await tracker.ensureProject();
-    console.log(
-      `  remote project: ${project.key} — ${project.name}${project.created ? ' (created)' : ' (existing)'}`,
-    );
-    if (project.error) console.error(`  error: ${project.error}`);
-    return project.error ? 1 : 0;
-  }
-  if (subcommand === 'init') {
-    if (!settings.jiraConfigured) {
-      console.error(
-        'Jira credentials are missing. Set JIRA_EMAIL and JIRA_API_TOKEN, or start the web app and use Settings → Task tracker / Jira.',
-      );
+    if (project.error) {
+      console.error(`  error: ${project.error}`);
+      console.error('  If this mentions scopes, run: gh auth refresh -s project');
       return 1;
     }
+    console.log(`  remote project: ${project.name}${project.created ? ' (created)' : ' (existing)'}`);
+    if (project.url) console.log(`  url: ${project.url}`);
+    return 0;
+  }
+  if (subcommand === 'init') {
+    settings.githubEnabled = true;
     const tracker = createTracker(settings);
     const project = await tracker.ensureProject();
     if (project.error) {
-      console.error(`Jira project setup failed: ${project.error}`);
+      console.error(`GitHub project setup failed: ${project.error}`);
+      console.error('  Authenticate the GitHub CLI with project access: gh auth refresh -s project');
       return 1;
     }
-    console.log(
-      `Jira project ${project.key} (${project.name}) is ${project.created ? 'ready (created)' : 'ready (existing)'}.`,
+    db.withSession(settings.dbPath, (conn) =>
+      db.saveAppSettings(conn, settings.configValues({ includeSecrets: true })),
     );
-    console.log(`  ${settings.jiraBaseUrl}/jira/software/projects/${project.key}/boards`);
+    console.log(
+      `GitHub project ${settings.githubProjectTitle} is ${project.created ? 'ready (created)' : 'ready (existing)'}.`,
+    );
+    console.log(`  repository: ${settings.githubOwner}/${settings.githubRepo}`);
+    if (project.url) console.log(`  url: ${project.url}`);
+    console.log(`  saved: GitHub sync is now enabled for ticket prefix ${settings.ticketPrefix}.`);
     return 0;
   }
-  throw new Error(`Unknown jira subcommand "${subcommand}". Use: jira status | jira init`);
+  if (subcommand === 'sync') {
+    const tracker = createTracker(settings);
+    if (!(tracker instanceof GitHubTracker)) {
+      console.error('GitHub sync is not enabled. Run: dev-firm github init');
+      return 1;
+    }
+    const run = Number.parseInt(optionString(options, 'run'), 10);
+    const result = await tracker.syncAll(Number.isFinite(run) && run > 0 ? run : null);
+    console.log(`Synced ${result.synced} ticket(s); ${result.failed} still have sync warnings.`);
+    return result.failed ? 1 : 0;
+  }
+  throw new Error(`Unknown github subcommand "${subcommand}". Use: github status | github init | github sync`);
 }
 
 export const HELP = `usage: dev-firm [--home HOME] <command> ...
@@ -236,8 +254,10 @@ commands:
                        looping on review/QA failures until QA passes or the limit is hit
   serve                Run the local web app (--host/--port)
   agents               List agent roles or print a role prompt (--prompt ROLE)
-  jira status          Show Jira configuration and verify the project
-  jira init            Create/verify the Jira project (--project-key/--project-name)
+  github status        Show GitHub Projects config and verify the project
+  github init          Create/verify the project and enable sync
+                       (--owner/--repo/--title/--project/--prefix)
+  github sync          Re-apply local tickets to GitHub (--run ID, default all)
 `;
 
 export async function main(argv: string[]): Promise<number> {
@@ -263,8 +283,8 @@ export async function main(argv: string[]): Promise<number> {
     }
     if (command === 'serve') return await cmdServe(settings, global.options);
     if (command === 'agents') return cmdAgents(global.options);
-    if (command === 'jira') {
-      return await cmdJira(settings, positionals.slice(1), global.options);
+    if (command === 'github') {
+      return await cmdGithub(settings, positionals.slice(1), global.options);
     }
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));

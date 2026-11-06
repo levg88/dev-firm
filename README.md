@@ -13,9 +13,10 @@ developers implement and hand off to the tech lead, who rejects back to the deve
 approves to QA. QA either closes the tickets with evidence or opens linked bugs for
 another loop. The delivery loop repeats until QA passes or the iteration limit is reached.
 
-Every task and bug lives on a local **ticket board** and is mirrored to **Jira** when
-credentials are configured. Every agent call and artifact is recorded in a local SQLite
-database, and the produced documents and code are committed to git along the way.
+Every task and bug lives on a local **ticket board** and is mirrored to **GitHub Issues +
+a GitHub Project** when sync is enabled. Every agent call and artifact is recorded in a
+local SQLite database, and the produced documents and code are committed to git along the
+way with a distinct author identity for each role.
 
 > This is the development firm. The career firm (Office Manager, Headhunter, Resume
 > Writer) lives separately at
@@ -62,7 +63,7 @@ database, and the produced documents and code are committed to git along the way
                              │                    → developer loop
                  ┌───────────▼────────────┐
                  │ SQLite + ticket board  │  workflows, tickets, events,
-                 │ + optional Jira sync   │  artifacts, generated files
+                 │ + GitHub Projects sync │  artifacts, generated files
                  └────────────────────────┘
 ```
 
@@ -103,8 +104,9 @@ todo → design → team_review → in_progress → in_review → qa → done
                                                    └→ blocked
 ```
 
-Every transition and comment is recorded in `ticket_events`. When Jira is configured, the
-same tickets are created as Jira issues, linked, commented on, transitioned, and closed.
+Every transition and comment is recorded in `ticket_events`. When GitHub sync is
+enabled, the same tickets are created as GitHub issues, added to a GitHub Project,
+linked, commented on, moved across the project board, and closed with the evidence.
 
 ---
 
@@ -169,9 +171,10 @@ npm run cli -- build "BRIEF" --title "T" --repo PATH --max-iterations 5
                                             developers → tech lead → QA (loops until pass)
 npm run cli -- serve --host 127.0.0.1 --port 8766
 npm run cli -- agents --prompt team_lead   List roles / print a role prompt
-npm run cli -- jira status                 Show Jira config and verify the project
-npm run cli -- jira init --project-key CAREER --project-name "Career Team"
-                                            Create/verify the Jira project
+npm run cli -- github status               Show GitHub Projects config and verify the project
+npm run cli -- github init --owner levg88 --repo career-firm --title "Career Team"
+                                            Create/verify the project and enable sync
+npm run cli -- github sync --run 10       Re-apply existing tickets to GitHub
 ```
 
 `--home DIR` overrides the data directory for any command.
@@ -225,21 +228,22 @@ wizard, the stored configuration takes precedence.
 | `DEV_FIRM_TEMPERATURE` | `0.2` | Generation temperature |
 | `DEV_FIRM_MAX_TOKENS` | `8192` | Per-call limit |
 | `DEV_FIRM_TIMEOUT` | `600` | Provider request timeout (seconds) |
-| `DEV_FIRM_MAX_STEPS` | `24` | Tool-calling loop cap |
+| `DEV_FIRM_MAX_STEPS` | `40` | Tool-calling loop cap |
 | `DEV_FIRM_MAX_ITERATIONS` | `5` | Max delivery loops before the epic is blocked |
 | `DEV_FIRM_HEURISTIC_FALLBACK` | `true` | Fall back to offline output if a model call fails |
 | `DEV_FIRM_HOME` | `./data` | Database, workspaces, run artifacts |
 | `DEV_FIRM_HOST` | `127.0.0.1` | Bind address |
 | `DEV_FIRM_PORT` | `8766` | Bind port |
-| `JIRA_EMAIL` | — | Atlassian account email |
-| `JIRA_API_TOKEN` | — | Atlassian API token |
-| `JIRA_BASE_URL` | `https://agentsvibecoding.atlassian.net` | Jira site URL |
-| `JIRA_PROJECT_KEY` | `CAREER` | Jira project key |
-| `JIRA_PROJECT_NAME` | `Career Team` | Jira project name |
-| `JIRA_ACCOUNT_ID` | — | Default assignee account ID |
-| `JIRA_ASSIGNEES_JSON` | `{}` | Optional role → Jira account ID map |
-| `DEV_FIRM_JIRA_ENABLED` | auto | Set `false` to keep tickets local only |
-| `DEV_FIRM_JIRA_AUTO_CREATE` | `true` | Create the project if it does not exist |
+| `DEV_FIRM_TICKET_PREFIX` | `CAREER` | Prefix for local ticket keys |
+| `DEV_FIRM_GITHUB_ENABLED` | `false` | Set `true` to mirror tickets to GitHub Projects |
+| `GITHUB_OWNER` | `levg88` | GitHub user or organisation that owns the project |
+| `GITHUB_REPO` | `career-firm` | Repository that receives issues |
+| `GITHUB_PROJECT_TITLE` | `Career Team` | Project title looked up or created |
+| `GITHUB_PROJECT_NUMBER` | `0` | Project number; `0` finds it by title |
+| `GITHUB_DEFAULT_ASSIGNEE` | — | Optional GitHub login for issue assignment |
+| `GITHUB_ASSIGNEES_JSON` | `{}` | Optional role → GitHub login map |
+| `GITHUB_TOKEN` | — | Optional token; otherwise the logged-in `gh` CLI is used |
+| `DEV_FIRM_GITHUB_AUTO_CREATE` | `true` | Create the project if it does not exist |
 
 Provider behaviour:
 
@@ -257,29 +261,50 @@ Provider behaviour:
 - If a provider is selected but its key is missing, the app degrades to offline mode with
   a visible banner instead of crashing.
 
-### Jira task tracking
+### GitHub Projects task tracking
 
-The local ticket board is always available. To mirror it to Jira, add an Atlassian email
-and API token (`id.atlassian.com → Security → API tokens`) in **Settings → Task tracker /
-Jira**, or set `JIRA_EMAIL` and `JIRA_API_TOKEN`. Then run:
+The local ticket board is always available. To mirror it to GitHub Issues and a GitHub
+Project, authenticate the `gh` CLI with project access, then enable sync:
 
 ```bash
-npm run cli -- jira init --project-key CAREER --project-name "Career Team"
+gh auth refresh -s project
+npm run cli -- github init --owner levg88 --repo career-firm --title "Career Team"
 ```
 
-This verifies the project or creates it (Kanban template) if it is missing, and prints the
-board URL. During a build the firm:
+`github init` verifies the project or creates it if it is missing, links it to the
+repository, and saves the configuration. During a build the firm:
 
-- creates an epic and one Jira issue per product task;
-- attaches the design as comments and transitions each issue through the workflow;
-- represents agent ownership with an assignee account ID plus `agent-<role>` labels;
+- creates an issue for the epic and one issue per product task;
+- adds every issue to the project and moves its **Status** field through
+  `Todo → In Progress → Done`;
+- attaches the design as issue comments and records every assignment, review, bug, and
+  QA transition as a role-prefixed comment;
 - links QA bugs to their parent task;
-- closes tickets with the QA evidence.
+- closes issues with the QA evidence when the build passes.
 
-Jira sync is best-effort: a Jira failure is recorded on the ticket as a sync warning and
-never blocks the local delivery loop. Agent roles are not Jira users, so by default the
-authenticated account is used as the assignee. Use `JIRA_ASSIGNEES_JSON` (for example
-`{"backend_developer":"5b10ac8d..."}`) to map roles to real account IDs.
+GitHub sync is best-effort: a failure is recorded on the ticket as a sync warning and
+never blocks the local delivery loop. The local SQLite board remains the source of truth.
+
+**Token note:** a fine-grained token can create issues and comments but may not have
+access to user-owned Projects v2 (GitHub returns `user.projectV2` or
+`createProjectV2`). In that case the firm keeps using the supplied token for issue work
+and falls back to the authenticated `gh` CLI login for project-only commands. A classic
+token with the `project` scope can be stored instead if you want one credential for
+everything.
+
+#### Identity model
+
+Agents are not GitHub users, so the firm avoids impersonation:
+
+- **Commits** use a distinct local git author and committer per role
+  (`Dev Firm Architect <architect@dev-firm.local>`, `Dev Firm QA <qa@dev-firm.local>`,
+  and so on) via `git -c user.name=... -c user.email=...`.
+- **Issues** carry `type:<type>`, `role:<assignee>`, and `area:<area>` labels plus
+  `**Reported by:**` / `**Assignee:**` lines in the body.
+- **Comments** are prefixed with the actor role, e.g. `**qa**` or `**team_lead**`.
+- **Assignment** is optional. Set `GITHUB_DEFAULT_ASSIGNEE` or `GITHUB_ASSIGNEES_JSON`
+  (for example `{"backend_developer":"levg88"}`) only if you want real GitHub accounts
+  assigned. Otherwise the issue stays unassigned and the role labels carry ownership.
 
 ---
 
@@ -306,9 +331,9 @@ SQLite (`data/dev.db`):
 | `workflow_runs` | Build runs, status, brief, workspace path, error |
 | `agent_runs` | Role, provider, model, tokens, input/output audit |
 | `artifacts` | Product specs, architecture, design reviews, bug triage, developer/QA reports, ticket snapshots |
-| `tickets` | Local mirror of tasks, bugs, epics, statuses, assignees, links, Jira keys, evidence |
+| `tickets` | Local mirror of tasks, bugs, epics, statuses, assignees, links, GitHub issue keys/URLs, evidence |
 | `ticket_events` | Every transition, assignment, comment, link, and closing evidence |
-| `app_settings` | Provider, model, base URLs, keys, Jira config, iteration limit, defaults |
+| `app_settings` | Provider, model, base URLs, keys, GitHub config, iteration limit, defaults |
 
 Artifacts are also linked to the files in each run workspace. Files never leave your
 machine unless your configured model provider receives the prompt.
@@ -337,7 +362,7 @@ agents/
 tracker/
   types.ts            tracker interface and ticket types
   local.ts            SQLite ticket mirror, transitions, events
-  jira.ts             Jira REST client + remote sync adapter
+  github.ts           GitHub Issues + Projects sync adapter (gh CLI)
   index.ts            createTracker(settings)
 ```
 
@@ -391,8 +416,9 @@ creation, status polling, audit pages, ticket board, and ticket detail).
   The QA pass and test run are the safety net; always review the generated code.
 - **Bounded loops:** the delivery loop stops at the configured iteration limit and leaves
   a `blocked` epic plus open tickets for a human to inspect. It does not retry forever.
-- **Jira sync is best-effort:** local tickets are the source of truth during a run; a Jira
-  outage shows as a sync warning rather than failing the build.
+- **GitHub sync is best-effort:** local tickets are the source of truth during a run; a
+  GitHub outage or missing `project` scope shows as a sync warning rather than failing the
+  build. Run `gh auth refresh -s project` once to grant access.
 - **No deployment:** the firm writes code and runs tests. Building containers, deploying,
   or provisioning infrastructure is out of scope.
 - **Workspace size:** builds are intended for small local-first applications.

@@ -85,72 +85,83 @@
   </section>
 
   <section class="card" style="margin-top: 16px;">
-    <h2 style="margin-top: 0;">Task tracker / Jira</h2>
+    <h2 style="margin-top: 0;">Task tracker / GitHub Projects</h2>
     <p class="small muted">
       When enabled, every product task, design hand-off, developer assignment, review,
-      QA result, and bug is mirrored to Jira. The local ticket board always works, even
-      without Jira credentials.
+      QA result, and bug is mirrored to GitHub Issues and a GitHub Project. The local
+      ticket board always works, even without a project or token.
     </p>
     <label style="display: flex; gap: 8px; align-items: center; font-weight: 500;">
-      <input type="checkbox" name="jira_enabled" style="width: auto;"
-             <%= settings.jiraEnabled ? "checked" : "" %>>
-      Sync the ticket board to Jira
+      <input type="checkbox" name="github_enabled" style="width: auto;"
+             <%= settings.githubEnabled ? "checked" : "" %>>
+      Sync the ticket board to GitHub
     </label>
     <div class="row" style="margin-top: 12px;">
       <div class="field">
-        <label for="jira_base_url">Jira site URL</label>
-        <input id="jira_base_url" type="text" name="jira_base_url"
-               value="<%= settings.jiraBaseUrl %>" placeholder="https://your-site.atlassian.net">
+        <label for="github_owner">Owner</label>
+        <input id="github_owner" type="text" name="github_owner"
+               value="<%= settings.githubOwner %>" placeholder="levg88">
       </div>
       <div class="field">
-        <label for="jira_project_key">Project key</label>
-        <input id="jira_project_key" type="text" name="jira_project_key"
-               value="<%= settings.jiraProjectKey %>" placeholder="CAREER">
+        <label for="github_repo">Repository</label>
+        <input id="github_repo" type="text" name="github_repo"
+               value="<%= settings.githubRepo %>" placeholder="career-firm">
       </div>
       <div class="field">
-        <label for="jira_project_name">Project name</label>
-        <input id="jira_project_name" type="text" name="jira_project_name"
-               value="<%= settings.jiraProjectName %>" placeholder="Career Team">
+        <label for="ticket_prefix">Local ticket prefix</label>
+        <input id="ticket_prefix" type="text" name="ticket_prefix"
+               value="<%= settings.ticketPrefix %>" placeholder="CAREER">
       </div>
     </div>
     <div class="row">
       <div class="field">
-        <label for="jira_email">Atlassian account email</label>
-        <input id="jira_email" type="text" name="jira_email"
-               value="<%= settings.jiraEmail %>" placeholder="you@example.com">
+        <label for="github_project_title">Project title</label>
+        <input id="github_project_title" type="text" name="github_project_title"
+               value="<%= settings.githubProjectTitle %>" placeholder="Career Team">
       </div>
       <div class="field">
-        <label for="jira_api_token">Jira API token</label>
-        <input id="jira_api_token" type="password" name="jira_api_token" autocomplete="new-password"
-               placeholder="<%= settings.jiraTokenHint ? "Current: " + settings.jiraTokenHint + " — leave blank to keep" : "Atlassian API token" %>">
+        <label for="github_project_number">Project number <span class="muted">(0 = find by title)</span></label>
+        <input id="github_project_number" type="text" name="github_project_number"
+               value="<%= settings.githubProjectNumber %>" placeholder="0">
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="github_token">GitHub token <span class="muted">(optional)</span></label>
+        <input id="github_token" type="password" name="github_token" autocomplete="new-password"
+               placeholder="<%= settings.githubTokenHint ? "Current: " + settings.githubTokenHint + " — leave blank to keep" : "Leave blank to use the gh CLI login" %>">
         <p class="small muted" style="margin: 5px 0 0;">
-          Create one at <span class="mono">id.atlassian.com → Security → API tokens</span>.
-          Stored only in the local database.
+          Stored only in the local database. When blank, the authenticated
+          <span class="mono">gh</span> CLI is used. Requires the <span class="mono">project</span> scope
+          (<span class="mono">gh auth refresh -s project</span>).
         </p>
       </div>
+      <div class="field">
+        <label for="github_default_assignee">Default assignee login <span class="muted">(optional)</span></label>
+        <input id="github_default_assignee" type="text" name="github_default_assignee"
+               value="<%= settings.githubDefaultAssignee %>"
+               placeholder="GitHub login used for issue assignment when mapped">
+      </div>
     </div>
-    <div class="row">
-      <div class="field">
-        <label for="jira_default_account_id">Jira account ID <span class="muted">(optional)</span></label>
-        <input id="jira_default_account_id" type="text" name="jira_default_account_id"
-               value="<%= settings.jiraDefaultAccountId %>"
-               placeholder="Account ID used as the assignee; resolved automatically if blank">
-      </div>
-      <div class="field">
-        <label for="jira_assignees_json">Role → account ID map <span class="muted">(optional JSON)</span></label>
-        <input id="jira_assignees_json" type="text" name="jira_assignees_json"
-               value="<%= JSON.stringify(settings.jiraAssigneeAccountIds) %>"
-               placeholder='{"architect":"5b10ac8d..."}'>
-      </div>
+    <div class="field">
+      <label for="github_assignees_json">Role → GitHub login map <span class="muted">(optional JSON)</span></label>
+      <input id="github_assignees_json" type="text" name="github_assignees_json"
+             value="<%= JSON.stringify(settings.githubAssigneeLogins) %>"
+             placeholder='{"architect":"your-login"}'>
+      <p class="small muted" style="margin: 5px 0 0;">
+        Agents are not GitHub users. Commits use distinct role identities; issues use
+        role labels, body attribution, and role-prefixed comments. A mapped login is
+        only used for optional GitHub assignment.
+      </p>
     </div>
     <label style="display: flex; gap: 8px; align-items: center; font-weight: 500;">
-      <input type="checkbox" name="jira_auto_create" style="width: auto;"
-             <%= settings.jiraAutoCreateProject ? "checked" : "" %>>
-      Create the Jira project automatically if it does not exist
+      <input type="checkbox" name="github_auto_create" style="width: auto;"
+             <%= settings.githubAutoCreateProject ? "checked" : "" %>>
+      Create the GitHub Project automatically if it does not exist
     </label>
     <label style="display: flex; gap: 8px; align-items: center; font-weight: 500; margin-top: 6px;">
-      <input type="checkbox" name="clear_jira_token" style="width: auto;">
-      Clear the saved Jira token
+      <input type="checkbox" name="clear_github_token" style="width: auto;">
+      Clear the saved GitHub token
     </label>
   </section>
 

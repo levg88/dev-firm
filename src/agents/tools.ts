@@ -101,7 +101,7 @@ export class Sandbox {
     const run = async (): Promise<Record<string, unknown>> => {
       const { stdout, stderr } = await execAsync(command, {
         cwd: this.root,
-        timeout,
+        timeout: timeout * 1000,
         env: {
           PATH: '/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin',
           HOME: process.env.HOME ?? '',

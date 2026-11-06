@@ -62,7 +62,7 @@
 <% if (tickets && tickets.length) { %>
 <div class="card table-wrap">
   <table>
-    <thead><tr><th>Key</th><th>Type</th><th>Title</th><th>Status</th><th>Assignee</th><th>Parent</th><th>Jira</th></tr></thead>
+    <thead><tr><th>Key</th><th>Type</th><th>Title</th><th>Status</th><th>Assignee</th><th>Parent</th><th>GitHub</th></tr></thead>
     <tbody>
     <% for (const ticket of tickets) { %>
       <tr>
@@ -72,7 +72,7 @@
         <td><span class="badge <%= ticket.status %>"><%= ticket.status %></span></td>
         <td class="small"><%= ticket.assignee || "—" %></td>
         <td class="small mono"><%= ticket.parent_key || "—" %></td>
-        <td class="small mono"><%= ticket.jira_key || "—" %></td>
+        <td class="small mono"><% if (ticket.external_url) { %><a href="<%= ticket.external_url %>" target="_blank" rel="noreferrer"><%= ticket.external_key || "issue" %></a><% } else { %>—<% } %></td>
       </tr>
     <% } %>
     </tbody>

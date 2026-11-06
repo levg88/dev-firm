@@ -1,4 +1,4 @@
-.PHONY: install build start dev test typecheck check clean jira-status jira-init
+.PHONY: install build start dev test typecheck check clean github-status github-init github-sync
 
 install:
 	npm install
@@ -23,8 +23,11 @@ check: typecheck test
 clean:
 	rm -rf dist coverage
 
-jira-status:
-	npm run cli -- jira status
+github-status:
+	npm run cli -- github status
 
-jira-init:
-	npm run cli -- jira init --project-key $${JIRA_PROJECT_KEY:-CAREER} --project-name "$${JIRA_PROJECT_NAME:-Career Team}"
+github-init:
+	npm run cli -- github init --owner $${GITHUB_OWNER:-levg88} --repo $${GITHUB_REPO:-career-firm} --title "$${GITHUB_PROJECT_TITLE:-Career Team}"
+
+github-sync:
+	npm run cli -- github sync

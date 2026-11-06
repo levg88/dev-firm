@@ -121,15 +121,16 @@ export class Settings {
   host: string;
   port: number;
   setupComplete: boolean;
-  jiraEnabled: boolean;
-  jiraBaseUrl: string;
-  jiraEmail: string;
-  jiraApiToken: string;
-  jiraProjectKey: string;
-  jiraProjectName: string;
-  jiraAutoCreateProject: boolean;
-  jiraDefaultAccountId: string;
-  jiraAssigneeAccountIds: Record<string, string>;
+  ticketPrefix: string;
+  githubEnabled: boolean;
+  githubOwner: string;
+  githubRepo: string;
+  githubProjectTitle: string;
+  githubProjectNumber: number;
+  githubAutoCreateProject: boolean;
+  githubDefaultAssignee: string;
+  githubAssigneeLogins: Record<string, string>;
+  githubToken: string;
 
   constructor(values: {
     home: string;
@@ -151,15 +152,16 @@ export class Settings {
     host: string;
     port: number;
     setupComplete: boolean;
-    jiraEnabled: boolean;
-    jiraBaseUrl: string;
-    jiraEmail: string;
-    jiraApiToken: string;
-    jiraProjectKey: string;
-    jiraProjectName: string;
-    jiraAutoCreateProject: boolean;
-    jiraDefaultAccountId: string;
-    jiraAssigneeAccountIds: Record<string, string>;
+    ticketPrefix: string;
+    githubEnabled: boolean;
+    githubOwner: string;
+    githubRepo: string;
+    githubProjectTitle: string;
+    githubProjectNumber: number;
+    githubAutoCreateProject: boolean;
+    githubDefaultAssignee: string;
+    githubAssigneeLogins: Record<string, string>;
+    githubToken: string;
   }) {
     this.home = values.home;
     this.dataDir = values.home;
@@ -184,15 +186,16 @@ export class Settings {
     this.host = values.host;
     this.port = values.port;
     this.setupComplete = values.setupComplete;
-    this.jiraEnabled = values.jiraEnabled;
-    this.jiraBaseUrl = values.jiraBaseUrl;
-    this.jiraEmail = values.jiraEmail;
-    this.jiraApiToken = values.jiraApiToken;
-    this.jiraProjectKey = values.jiraProjectKey;
-    this.jiraProjectName = values.jiraProjectName;
-    this.jiraAutoCreateProject = values.jiraAutoCreateProject;
-    this.jiraDefaultAccountId = values.jiraDefaultAccountId;
-    this.jiraAssigneeAccountIds = values.jiraAssigneeAccountIds;
+    this.ticketPrefix = values.ticketPrefix;
+    this.githubEnabled = values.githubEnabled;
+    this.githubOwner = values.githubOwner;
+    this.githubRepo = values.githubRepo;
+    this.githubProjectTitle = values.githubProjectTitle;
+    this.githubProjectNumber = values.githubProjectNumber;
+    this.githubAutoCreateProject = values.githubAutoCreateProject;
+    this.githubDefaultAssignee = values.githubDefaultAssignee;
+    this.githubAssigneeLogins = values.githubAssigneeLogins;
+    this.githubToken = values.githubToken;
   }
 
   static load(): Settings {
@@ -217,22 +220,25 @@ export class Settings {
         process.env.OPENCODE_API_KEY,
     );
 
-    const jiraEmail = process.env.JIRA_EMAIL || process.env.DEV_FIRM_JIRA_EMAIL || '';
-    const jiraApiToken = process.env.JIRA_API_TOKEN || process.env.DEV_FIRM_JIRA_API_TOKEN || '';
-    let jiraAssigneeAccountIds: Record<string, string> = {};
-    const rawAssignees = process.env.JIRA_ASSIGNEES_JSON || process.env.DEV_FIRM_JIRA_ASSIGNEES_JSON || '';
+    const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || process.env.DEV_FIRM_GITHUB_TOKEN || '';
+    let githubAssigneeLogins: Record<string, string> = {};
+    const rawAssignees = process.env.GITHUB_ASSIGNEES_JSON || process.env.DEV_FIRM_GITHUB_ASSIGNEES_JSON || '';
     if (rawAssignees) {
       try {
         const parsed = JSON.parse(rawAssignees);
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          jiraAssigneeAccountIds = Object.fromEntries(
+          githubAssigneeLogins = Object.fromEntries(
             Object.entries(parsed).map(([key, value]) => [key, String(value ?? '')]),
           );
         }
       } catch {
-        jiraAssigneeAccountIds = {};
+        githubAssigneeLogins = {};
       }
     }
+    const githubEnabledExplicit = process.env.DEV_FIRM_GITHUB_ENABLED;
+    const githubEnabled = githubEnabledExplicit === undefined
+      ? false
+      : envBool('DEV_FIRM_GITHUB_ENABLED', false);
 
     const settings = new Settings({
       home,
@@ -248,28 +254,27 @@ export class Settings {
       temperature: envFloat('DEV_FIRM_TEMPERATURE', 0.2),
       maxTokens: envInt('DEV_FIRM_MAX_TOKENS', 8192),
       timeout: envFloat('DEV_FIRM_TIMEOUT', 600),
-      maxAgentSteps: envInt('DEV_FIRM_MAX_STEPS', 24),
+      maxAgentSteps: envInt('DEV_FIRM_MAX_STEPS', 40),
       maxBuildIterations: envInt('DEV_FIRM_MAX_ITERATIONS', 5),
       allowHeuristicFallback: envBool('DEV_FIRM_HEURISTIC_FALLBACK', true),
       host: process.env.DEV_FIRM_HOST || '127.0.0.1',
       port: envInt('DEV_FIRM_PORT', 8766),
       setupComplete: envBool('DEV_FIRM_SETUP_COMPLETE', envConfigured),
-      jiraEnabled: envBool(
-        'DEV_FIRM_JIRA_ENABLED',
-        Boolean(jiraEmail && jiraApiToken && process.env.DEV_FIRM_JIRA_ENABLED !== 'false'),
+      ticketPrefix: (process.env.DEV_FIRM_TICKET_PREFIX || 'CAREER').toUpperCase().replace(/[^A-Z0-9]+/g, '') || 'CAREER',
+      githubEnabled,
+      githubOwner: process.env.GITHUB_OWNER || process.env.DEV_FIRM_GITHUB_OWNER || 'levg88',
+      githubRepo: process.env.GITHUB_REPO || process.env.DEV_FIRM_GITHUB_REPO || 'career-firm',
+      githubProjectTitle:
+        process.env.GITHUB_PROJECT_TITLE || process.env.DEV_FIRM_GITHUB_PROJECT_TITLE || 'Career Team',
+      githubProjectNumber: envInt(
+        'DEV_FIRM_GITHUB_PROJECT_NUMBER',
+        Number.parseInt(process.env.GITHUB_PROJECT_NUMBER ?? '', 10) || 0,
       ),
-      jiraBaseUrl: cleanUrl(
-        process.env.JIRA_BASE_URL || process.env.DEV_FIRM_JIRA_BASE_URL || 'https://agentsvibecoding.atlassian.net',
-      ),
-      jiraEmail,
-      jiraApiToken,
-      jiraProjectKey: process.env.JIRA_PROJECT_KEY || process.env.DEV_FIRM_JIRA_PROJECT_KEY || 'CAREER',
-      jiraProjectName:
-        process.env.JIRA_PROJECT_NAME || process.env.DEV_FIRM_JIRA_PROJECT_NAME || 'Career Team',
-      jiraAutoCreateProject: envBool('DEV_FIRM_JIRA_AUTO_CREATE', true),
-      jiraDefaultAccountId:
-        process.env.JIRA_ACCOUNT_ID || process.env.DEV_FIRM_JIRA_ACCOUNT_ID || '',
-      jiraAssigneeAccountIds,
+      githubAutoCreateProject: envBool('DEV_FIRM_GITHUB_AUTO_CREATE', true),
+      githubDefaultAssignee:
+        process.env.GITHUB_DEFAULT_ASSIGNEE || process.env.DEV_FIRM_GITHUB_DEFAULT_ASSIGNEE || '',
+      githubAssigneeLogins,
+      githubToken,
     });
     settings.ensureDirs();
     return settings;
@@ -333,41 +338,42 @@ export class Settings {
     if ('setup_complete' in values) {
       this.setupComplete = asBool('setup_complete', this.setupComplete);
     }
-    if ('jira_enabled' in values) this.jiraEnabled = asBool('jira_enabled', this.jiraEnabled);
-    if ('jira_base_url' in values) {
-      this.jiraBaseUrl = cleanUrl(values.jira_base_url) || 'https://agentsvibecoding.atlassian.net';
+    if ('ticket_prefix' in values) {
+      const prefix = values.ticket_prefix.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '');
+      this.ticketPrefix = prefix || 'CAREER';
     }
-    if ('jira_email' in values) this.jiraEmail = values.jira_email.trim();
-    if ('jira_api_token' in values) this.jiraApiToken = values.jira_api_token.trim();
-    if ('jira_project_key' in values) {
-      const key = values.jira_project_key.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '');
-      this.jiraProjectKey = key || 'CAREER';
+    if ('github_enabled' in values) this.githubEnabled = asBool('github_enabled', this.githubEnabled);
+    if ('github_owner' in values) this.githubOwner = values.github_owner.trim() || 'levg88';
+    if ('github_repo' in values) this.githubRepo = values.github_repo.trim() || 'career-firm';
+    if ('github_project_title' in values) {
+      this.githubProjectTitle = values.github_project_title.trim() || 'Career Team';
     }
-    if ('jira_project_name' in values) {
-      this.jiraProjectName = values.jira_project_name.trim() || 'Career Team';
+    if ('github_project_number' in values) {
+      this.githubProjectNumber = Math.max(0, asInt('github_project_number', this.githubProjectNumber));
     }
-    if ('jira_auto_create' in values) {
-      this.jiraAutoCreateProject = asBool('jira_auto_create', this.jiraAutoCreateProject);
+    if ('github_auto_create' in values) {
+      this.githubAutoCreateProject = asBool('github_auto_create', this.githubAutoCreateProject);
     }
-    if ('jira_default_account_id' in values) {
-      this.jiraDefaultAccountId = values.jira_default_account_id.trim();
+    if ('github_default_assignee' in values) {
+      this.githubDefaultAssignee = values.github_default_assignee.trim();
     }
-    if ('jira_assignees_json' in values) {
+    if ('github_assignees_json' in values) {
       try {
-        const parsed = JSON.parse(values.jira_assignees_json);
+        const parsed = JSON.parse(values.github_assignees_json);
         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          this.jiraAssigneeAccountIds = Object.fromEntries(
+          this.githubAssigneeLogins = Object.fromEntries(
             Object.entries(parsed).map(([key, value]) => [key, String(value ?? '')]),
           );
         }
       } catch {
-        // Ignore malformed mappings; the default account continues to be used.
+        // Ignore malformed mappings; issues stay unassigned when no login is known.
       }
     }
+    if ('github_token' in values) this.githubToken = values.github_token.trim();
   }
 
-  get jiraConfigured(): boolean {
-    return Boolean(this.jiraEnabled && this.jiraEmail && this.jiraApiToken);
+  get githubConfigured(): boolean {
+    return Boolean(this.githubEnabled && this.githubOwner && this.githubRepo);
   }
 
   configValues(options: { includeSecrets?: boolean } = {}): Record<string, string> {
@@ -387,20 +393,21 @@ export class Settings {
       host: this.host,
       port: String(this.port),
       setup_complete: this.setupComplete ? 'true' : 'false',
-      jira_enabled: this.jiraEnabled ? 'true' : 'false',
-      jira_base_url: this.jiraBaseUrl,
-      jira_email: this.jiraEmail,
-      jira_project_key: this.jiraProjectKey,
-      jira_project_name: this.jiraProjectName,
-      jira_auto_create: this.jiraAutoCreateProject ? 'true' : 'false',
-      jira_default_account_id: this.jiraDefaultAccountId,
-      jira_assignees_json: JSON.stringify(this.jiraAssigneeAccountIds),
+      ticket_prefix: this.ticketPrefix,
+      github_enabled: this.githubEnabled ? 'true' : 'false',
+      github_owner: this.githubOwner,
+      github_repo: this.githubRepo,
+      github_project_title: this.githubProjectTitle,
+      github_project_number: String(this.githubProjectNumber),
+      github_auto_create: this.githubAutoCreateProject ? 'true' : 'false',
+      github_default_assignee: this.githubDefaultAssignee,
+      github_assignees_json: JSON.stringify(this.githubAssigneeLogins),
     };
     if (options.includeSecrets) {
       values.api_key = this.apiKey;
       values.anthropic_api_key = this.anthropicApiKey;
       values.opencode_api_key = this.opencodeApiKey;
-      values.jira_api_token = this.jiraApiToken;
+      values.github_token = this.githubToken;
     }
     return values;
   }
@@ -440,18 +447,20 @@ export class Settings {
       heuristic_fallback: this.allowHeuristicFallback,
       setup_complete: this.setupComplete,
       api_key_hint: this.apiKeyHint,
-      jira_enabled: this.jiraEnabled,
-      jira_configured: this.jiraConfigured,
-      jira_base_url: this.jiraBaseUrl,
-      jira_project_key: this.jiraProjectKey,
-      jira_project_name: this.jiraProjectName,
-      jira_email: this.jiraEmail,
-      jira_token_hint: this.jiraTokenHint,
+      ticket_prefix: this.ticketPrefix,
+      github_enabled: this.githubEnabled,
+      github_configured: this.githubConfigured,
+      github_owner: this.githubOwner,
+      github_repo: this.githubRepo,
+      github_project_title: this.githubProjectTitle,
+      github_project_number: this.githubProjectNumber,
+      github_default_assignee: this.githubDefaultAssignee,
+      github_token_hint: this.githubTokenHint,
     };
   }
 
-  get jiraTokenHint(): string {
-    const token = this.jiraApiToken;
+  get githubTokenHint(): string {
+    const token = this.githubToken;
     if (!token) return '';
     if (token.length <= 8) return '••••••••';
     return `${token.slice(0, 3)}…${token.slice(-4)}`;

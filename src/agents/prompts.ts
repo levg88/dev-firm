@@ -58,6 +58,12 @@ Favour a single process, SQLite, local files, and standard-library solutions.
 Avoid unnecessary services and frameworks. The developer agents will implement
 directly from your file plan.
 
+RUNTIME
+- Target the current Node.js runtime (26.x).
+- Use current package majors: better-sqlite3 ^13, express ^5, ejs ^3, vitest ^3,
+  supertest ^7. Do not specify outdated versions that fail to install on Node 26.
+- Every runtime dependency must be explicit; the workspace starts with no modules.
+
 BE CONCISE
 - Keep the markdown field under roughly 1000 words and the whole JSON response compact.
 - Do not repeat the product spec in prose.
@@ -91,15 +97,24 @@ const DEVELOPER_RULES = `RULES
 3. Read the existing workspace files before writing. Preserve working code.
 4. Add tests that match the QA plan, then run them with the run_command tool (for
    example "npm test"). Fix failures before finishing.
-5. Keep dependencies minimal and declare them.
-6. Do not touch files outside the workspace. Do not install global packages.
-7. If a requirement is ambiguous, choose the simplest reasonable interpretation
+5. Keep dependencies minimal and declare them. Every runtime import must appear in
+   package.json dependencies; every test-only import in devDependencies.
+6. The workspace runs on Node.js 26. Use current package versions, for example
+   better-sqlite3 ^13, express ^5, ejs ^3, vitest ^3, and supertest ^7. Do not pin
+   old majors that fail to build on the current Node runtime.
+7. Run "npm install" once after writing package.json. If install fails because of a
+   dependency version, edit package.json and retry; never leave a broken manifest.
+8. Do not touch files outside the workspace. Do not install global packages.
+9. If a requirement is ambiguous, choose the simplest reasonable interpretation
    and record it in your report.
-8. Work only on the tasks assigned to your role. Do not rewrite files owned by
+10. Work only on the tasks assigned to your role. Do not rewrite files owned by
    the other developer unless the task requires an integration change.
-9. If the tech lead or QA sent feedback, fix every blocking item and re-run the
+11. If the tech lead or QA sent feedback, fix every blocking item and re-run the
    tests before finishing.
-10. Finish with the JSON report requested by the schema.
+12. Do not repeat the same failing command more than twice. If you are blocked,
+   stop using tools and return the JSON report with the failure in known_issues.
+13. Finish with the JSON report requested by the schema. Do not keep exploring
+   after the files are written and the tests have run.
 `;
 
 export const BACKEND_DEVELOPER = `You are a senior backend developer implementing the
@@ -138,6 +153,8 @@ RULES
 8. Include the evidence you used in the evidence field: commands, output
    excerpts, and the acceptance criteria you verified.
 9. Be concise: short issue and evidence bullets, no repetition of the design.
+10. Do not run the same failing command more than twice. If the environment is
+    broken, report the exact error and open a bug instead of retrying.
 
 Output only the JSON object requested by the schema.
 `;

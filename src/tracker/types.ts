@@ -15,7 +15,8 @@ export type TicketStatus =
 export interface Ticket {
   id: number;
   key: string;
-  jira_key?: string | null;
+  external_key?: string | null;
+  external_url?: string | null;
   workflow_run_id?: number | null;
   project_key: string;
   type: TicketType | string;
@@ -71,14 +72,15 @@ export interface TicketPatch {
   evidence?: string | null;
   labels?: string[];
   syncError?: string | null;
-  jiraKey?: string | null;
+  externalKey?: string | null;
+  externalUrl?: string | null;
 }
 
 export interface Tracker {
   readonly projectKey: string;
   readonly projectName: string;
   readonly remote: boolean;
-  ensureProject(): Promise<{ key: string; name: string; created: boolean; error?: string }>;
+  ensureProject(): Promise<{ key: string; name: string; created: boolean; url?: string; error?: string }>;
   createTicket(input: CreateTicketInput): Promise<Ticket>;
   createBug(input: CreateBugInput): Promise<Ticket>;
   get(key: string): Promise<Ticket | null>;

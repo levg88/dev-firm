@@ -13,12 +13,12 @@ import type {
 export class LocalTracker implements Tracker {
   readonly projectKey: string;
   readonly projectName: string;
-  readonly remote = false;
+  readonly remote: boolean = false;
   protected readonly workflowRunId: number | null;
 
   constructor(protected readonly settings: Settings, workflowRunId: number | null = null) {
-    this.projectKey = settings.jiraProjectKey || 'CAREER';
-    this.projectName = settings.jiraProjectName || 'Career Team';
+    this.projectKey = settings.ticketPrefix || 'CAREER';
+    this.projectName = settings.githubProjectTitle || 'Career Team';
     this.workflowRunId = workflowRunId;
   }
 
@@ -85,7 +85,8 @@ export class LocalTracker implements Tracker {
     if (patch.evidence !== undefined) fields.evidence = patch.evidence;
     if (patch.labels !== undefined) fields.labels_json = patch.labels;
     if (patch.syncError !== undefined) fields.sync_error = patch.syncError;
-    if (patch.jiraKey !== undefined) fields.jira_key = patch.jiraKey;
+    if (patch.externalKey !== undefined) fields.external_key = patch.externalKey;
+    if (patch.externalUrl !== undefined) fields.external_url = patch.externalUrl;
     return db.withSession(this.settings.dbPath, (conn) =>
       db.updateTicketRecord(conn, key, fields),
     ) as Ticket | null;

@@ -62,7 +62,8 @@ CREATE TABLE IF NOT EXISTS tickets (
     workflow_run_id INTEGER REFERENCES workflow_runs(id) ON DELETE CASCADE,
     project_key TEXT NOT NULL DEFAULT '',
     key TEXT NOT NULL UNIQUE,
-    jira_key TEXT,
+    external_key TEXT,
+    external_url TEXT,
     type TEXT NOT NULL DEFAULT 'task',
     title TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
@@ -128,8 +129,27 @@ export function initDb(dbPath: string): void {
   const conn = connect(dbPath);
   try {
     conn.exec(SCHEMA);
+    migrateTickets(conn);
   } finally {
     conn.close();
+  }
+}
+
+/** Bring older local databases forward without losing their ticket history. */
+function migrateTickets(conn: Conn): void {
+  const columns = new Set(
+    (conn.prepare('PRAGMA table_info(tickets)').all() as Row[]).map((row) => String(row.name)),
+  );
+  if (!columns.has('external_key')) {
+    conn.exec('ALTER TABLE tickets ADD COLUMN external_key TEXT');
+  }
+  if (!columns.has('external_url')) {
+    conn.exec('ALTER TABLE tickets ADD COLUMN external_url TEXT');
+  }
+  if (columns.has('jira_key')) {
+    conn.exec(
+      'UPDATE tickets SET external_key = jira_key WHERE external_key IS NULL AND jira_key IS NOT NULL',
+    );
   }
 }
 
@@ -364,9 +384,9 @@ export function createTicket(conn: Conn, input: TicketCreateInput): Row {
   const info = conn
     .prepare(
       `INSERT INTO tickets
-       (workflow_run_id, project_key, key, jira_key, type, title, description, status,
+       (workflow_run_id, project_key, key, external_key, external_url, type, title, description, status,
         assignee, reporter, parent_key, labels_json, links_json, created_at, updated_at)
-       VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       input.workflowRunId,
@@ -392,9 +412,9 @@ export function createTicket(conn: Conn, input: TicketCreateInput): Row {
 }
 
 export function getTicket(conn: Conn, key: string): Row | null {
-  const row = conn.prepare('SELECT * FROM tickets WHERE key = ? OR jira_key = ?').get(key, key) as
-    | Row
-    | undefined;
+  const row = conn
+    .prepare('SELECT * FROM tickets WHERE key = ? OR external_key = ? OR external_url = ?')
+    .get(key, key, key) as Row | undefined;
   return row ? ticketFromRow(row) : null;
 }
 
@@ -414,7 +434,8 @@ export function listTickets(
 
 export function updateTicketRecord(conn: Conn, key: string, fields: Row): Row | null {
   const allowed = new Set([
-    'jira_key',
+    'external_key',
+    'external_url',
     'type',
     'title',
     'description',

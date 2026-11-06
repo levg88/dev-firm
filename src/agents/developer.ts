@@ -80,6 +80,12 @@ export class Developer {
       '## TEST PLAN',
       architecture.test_plan.map((item: string) => `- ${item}`).join('\n'),
       '',
+      '## RUNTIME',
+      `- Node.js version: ${process.version.replace(/^v/, '')}`,
+      '- Use current packages: better-sqlite3 ^13, express ^5, ejs ^3, vitest ^3, supertest ^7.',
+      '- Declare every runtime import in dependencies and run npm install before npm test.',
+      '- Stop retrying a failing command after two attempts; return the report with the error.',
+      '',
       '## ASSIGNED TASKS',
       assigned || '(implement the backend/frontend portion of the product spec)',
     ];

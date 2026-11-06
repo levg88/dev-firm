@@ -10,7 +10,7 @@
       <span class="mono"><%= ticket.key %></span>
       <span class="badge"><%= ticket.type %></span>
       <span class="badge <%= ticket.status %>"><%= ticket.status %></span>
-      <% if (ticket.jira_key) { %>· Jira <span class="mono"><%= ticket.jira_key %></span><% } %>
+      <% if (ticket.external_key) { %>· GitHub <a class="mono" href="<%= ticket.external_url || '#' %>" target="_blank" rel="noreferrer"><%= ticket.external_key %></a><% } %>
     </p>
   </div>
 </div>
@@ -25,6 +25,9 @@
         <% if (ticket.parent_key) { %><a href="/tickets/<%= ticket.parent_key %>"><%= ticket.parent_key %></a><% } else { %>—<% } %>
       </td></tr>
       <tr><th>Project</th><td class="mono"><%= ticket.project_key %></td></tr>
+      <tr><th>GitHub</th><td class="mono">
+        <% if (ticket.external_url) { %><a href="<%= ticket.external_url %>" target="_blank" rel="noreferrer"><%= ticket.external_key || "issue" %></a><% } else { %>—<% } %>
+      </td></tr>
       <tr><th>Created</th><td class="small"><%= String(ticket.created_at || "").slice(0, 16).replace("T", " ") %></td></tr>
       <tr><th>Updated</th><td class="small"><%= String(ticket.updated_at || "").slice(0, 16).replace("T", " ") %></td></tr>
     </table>
@@ -40,7 +43,7 @@
     </p>
     <% } %>
     <% if (ticket.sync_error) { %>
-    <div class="banner error small"><strong>Jira sync warning:</strong> <%= ticket.sync_error %></div>
+    <div class="banner error small"><strong>GitHub sync warning:</strong> <%= ticket.sync_error %></div>
     <% } %>
   </section>
 
