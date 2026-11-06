@@ -132,15 +132,21 @@ export class BuildService {
     const qa = qaReportSchema.parse(qaResult.data ?? {});
     if (!qa.passed) {
       const feedback = qa.issues.join('\n') || qa.summary;
-      const retryResult = await this.agents.developer(spec, architecture, sandbox, {
-        feedback,
-        workflowRunId: workflowId,
-      });
-      const retryReport = developerReportSchema.parse(retryResult.data ?? {});
-      this._artifact(workflowId, workspace, 'developer_report_retry.md', this._developerMarkdown(retryReport));
+      let retryReport = devReport;
+      try {
+        const retryResult = await this.agents.developer(spec, architecture, sandbox, {
+          feedback,
+          workflowRunId: workflowId,
+        });
+        retryReport = developerReportSchema.parse(retryResult.data ?? {});
+        this._artifact(workflowId, workspace, 'developer_report_retry.md', this._developerMarkdown(retryReport));
+      } catch {
+        this._artifact(workflowId, workspace, 'developer_report_retry.md', '# Developer retry failed\n\nThe retry attempt could not produce a valid report; using the original developer report.');
+      }
       const retryQaResult = await this.agents.qa(spec, architecture, sandbox, { workflowRunId: workflowId });
       const retryQa = qaReportSchema.parse(retryQaResult.data ?? {});
       this._artifact(workflowId, workspace, 'qa_report.md', this._qaMarkdown(retryQa));
+      this._commit(workspace, `dev-firm: build (${brief.slice(0, 60)})`);
       return {
         workspace,
         spec: JSON.parse(JSON.stringify(spec)),
