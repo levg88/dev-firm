@@ -3,9 +3,10 @@
   <div class="grow">
     <h1>Your boutique development firm</h1>
     <p class="lead">
-      Describe an application and a five-role agent team takes it from brief to tested
-      code: product manager, architect, developer, tech lead, and QA. Every run gets its own
-      isolated workspace and a complete audit trail.
+      Describe an application and a seven-role agent team takes it from brief to tested
+      code through a real delivery flow: product manager → architect → team lead →
+      backend/frontend developers → tech lead → QA. Tasks and bugs are tracked on the
+      <a href="/tickets">ticket board</a> and mirrored to Jira when configured.
     </p>
   </div>
   <a class="button" href="/build">Start a build</a>
@@ -23,26 +24,35 @@
     <p class="small muted" style="margin: 8px 0 0;"><%= stats.artifacts %> artifacts stored</p>
   </section>
   <section class="card compact">
-    <div class="stat"><%= settings.model %></div>
-    <div class="stat-label"><%= settings.provider %></div>
-    <p class="small muted" style="margin: 8px 0 0;">Configure in Settings</p>
+    <div class="stat"><%= stats.tickets %></div>
+    <div class="stat-label">Tracked tickets</div>
+    <p class="small muted" style="margin: 8px 0 0;">
+      <%= settings.provider %> / <%= settings.model %> · <a href="/tickets">Open board</a>
+    </p>
   </section>
 </div>
 
 <h2>The team</h2>
-<div class="grid two">
+<div class="grid three">
   <section class="card">
     <h3>Product Manager → Architect</h3>
     <p class="small muted">
-      Turns the brief into a scoped product spec, then designs the smallest implementable
-      architecture, file plan, interfaces, and test plan.
+      Creates the PRD and task breakdown, then the architect designs the stack, file plan,
+      interfaces, and test plan.
     </p>
   </section>
   <section class="card">
-    <h3>Developer → Tech Lead → QA</h3>
+    <h3>Team Lead → Developers</h3>
     <p class="small muted">
-      Writes real files into the run workspace, the tech lead reviews against the PRD and
-      design, and QA runs the acceptance checks and test suite.
+      Reviews the design and routes every task to a backend or frontend developer, who
+      writes real files into the run workspace.
+    </p>
+  </section>
+  <section class="card">
+    <h3>Tech Lead → QA</h3>
+    <p class="small muted">
+      The tech lead reviews the code; on rejection it goes back to the developer. QA
+      verifies, closes tickets with evidence, or opens linked bugs for another loop.
     </p>
   </section>
 </div>

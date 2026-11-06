@@ -6,6 +6,7 @@ import * as db from './db';
 import { BuildService } from './orchestrator/build';
 import { buildLlm, MockClient } from './llm';
 import { applyStoredSettings } from './runtime';
+import { createTracker } from './tracker';
 
 interface ParsedArguments {
   positionals: string[];
@@ -96,11 +97,20 @@ async function cmdBuild(settings: Settings, positionals: string[], options: Reco
     throw new Error('A product brief is required. Usage: dev-firm build "<brief>" --title "Title"');
   }
   db.initDb(settings.dbPath);
-  console.log('Running the PM → architect → developer → QA pipeline...');
+  const maxIterations = Number.parseInt(optionString(options, 'max-iterations'), 10);
+  if (Number.isFinite(maxIterations) && maxIterations > 0) {
+    settings.maxBuildIterations = maxIterations;
+  }
+  console.log('Running the PM → architect → team lead → developers → tech lead → QA loop...');
   try {
     const result = await new BuildService(settings).run(brief, optionString(options, 'title'), optionString(options, 'repo') || undefined);
     console.log(`Workflow #${result.workflow_id}`);
     console.log(`  workspace: ${result.workspace}`);
+    console.log(
+      `  delivery: ${result.passed ? 'PASSED' : 'BLOCKED'} after ${result.iterations} iteration(s)`,
+    );
+    console.log(`  tickets: ${result.tickets.length} tracked`);
+    if (result.blocked_reason) console.log(`  reason: ${result.blocked_reason}`);
     if (result.mock) {
       console.log('  offline mock: configure a provider for real implementation output');
     } else {
@@ -127,7 +137,16 @@ function cmdAgents(options: Record<string, string | boolean>): number {
   const roles: Record<string, [string, string]> = {
     product_manager: ['Product Manager', 'You are a senior product manager.'],
     architect: ['Architect', 'You are a pragmatic software architect.'],
-    developer: ['Developer', 'You are a senior developer implementing a small application.'],
+    team_lead: ['Team Lead', 'You are the team lead for a small engineering team.'],
+    backend_developer: [
+      'Backend Developer',
+      'You are a senior backend developer implementing the server, data layer, API, CLI, and persistence.',
+    ],
+    frontend_developer: [
+      'Frontend Developer',
+      'You are a senior frontend developer implementing the user interface, templates, components, client-side behaviour, and styling.',
+    ],
+    tech_lead: ['Tech Lead', 'You are a rigorous tech lead.'],
     qa: ['QA', 'You are a rigorous QA engineer.'],
   };
   const selected = optionString(options, 'prompt');
@@ -139,22 +158,86 @@ function cmdAgents(options: Record<string, string | boolean>): number {
     return 0;
   }
   for (const [key, [label, firstLine]] of Object.entries(roles)) {
-    console.log(`${key.padEnd(18)} ${label.padEnd(18)} ${firstLine}`);
+    console.log(`${key.padEnd(20)} ${label.padEnd(20)} ${firstLine}`);
   }
   return 0;
 }
 
+async function cmdJira(
+  settings: Settings,
+  positionals: string[],
+  options: Record<string, string | boolean>,
+): Promise<number> {
+  db.initDb(settings.dbPath);
+  if (optionString(options, 'project-key')) {
+    settings.jiraProjectKey = optionString(options, 'project-key')
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '');
+  }
+  if (optionString(options, 'project-name')) {
+    settings.jiraProjectName = optionString(options, 'project-name').trim();
+  }
+  const subcommand = positionals[0] || 'status';
+  if (subcommand === 'status') {
+    console.log('Jira integration');
+    console.log(`  enabled: ${settings.jiraEnabled ? 'yes' : 'no'}`);
+    console.log(`  configured: ${settings.jiraConfigured ? 'yes' : 'no'}`);
+    console.log(`  site: ${settings.jiraBaseUrl}`);
+    console.log(`  project: ${settings.jiraProjectKey} (${settings.jiraProjectName})`);
+    console.log(`  email: ${settings.jiraEmail || '(not set)'}`);
+    console.log(`  token: ${settings.jiraTokenHint || '(not set)'}`);
+    if (!settings.jiraConfigured) {
+      console.log(
+        '  Set JIRA_EMAIL and JIRA_API_TOKEN (or use Settings) to enable remote sync. Local tickets always work.',
+      );
+      return 0;
+    }
+    const tracker = createTracker(settings);
+    const project = await tracker.ensureProject();
+    console.log(
+      `  remote project: ${project.key} — ${project.name}${project.created ? ' (created)' : ' (existing)'}`,
+    );
+    if (project.error) console.error(`  error: ${project.error}`);
+    return project.error ? 1 : 0;
+  }
+  if (subcommand === 'init') {
+    if (!settings.jiraConfigured) {
+      console.error(
+        'Jira credentials are missing. Set JIRA_EMAIL and JIRA_API_TOKEN, or start the web app and use Settings → Task tracker / Jira.',
+      );
+      return 1;
+    }
+    const tracker = createTracker(settings);
+    const project = await tracker.ensureProject();
+    if (project.error) {
+      console.error(`Jira project setup failed: ${project.error}`);
+      return 1;
+    }
+    console.log(
+      `Jira project ${project.key} (${project.name}) is ${project.created ? 'ready (created)' : 'ready (existing)'}.`,
+    );
+    console.log(`  ${settings.jiraBaseUrl}/jira/software/projects/${project.key}/boards`);
+    return 0;
+  }
+  throw new Error(`Unknown jira subcommand "${subcommand}". Use: jira status | jira init`);
+}
+
 export const HELP = `usage: dev-firm [--home HOME] <command> ...
 
-Agent-run development firm: brief → spec → architecture → code → QA.
+Agent-run development firm: brief → spec → design → code → review → QA, tracked in tickets.
 
 commands:
   init                 Initialise the local database and data directories
   config               Print the effective configuration
   doctor               Check provider, dependencies, and database stats
-  build <brief> [--title T] [--repo PATH]   Run validate → PM → architect → developer → tech lead → QA
+  build <brief> [--title T] [--repo PATH] [--max-iterations N]
+                       Run PM → architect → team lead → developers → tech lead → QA,
+                       looping on review/QA failures until QA passes or the limit is hit
   serve                Run the local web app (--host/--port)
-  agents              List agent roles or print a role prompt (--prompt ROLE)
+  agents               List agent roles or print a role prompt (--prompt ROLE)
+  jira status          Show Jira configuration and verify the project
+  jira init            Create/verify the Jira project (--project-key/--project-name)
 `;
 
 export async function main(argv: string[]): Promise<number> {
@@ -180,6 +263,9 @@ export async function main(argv: string[]): Promise<number> {
     }
     if (command === 'serve') return await cmdServe(settings, global.options);
     if (command === 'agents') return cmdAgents(global.options);
+    if (command === 'jira') {
+      return await cmdJira(settings, positionals.slice(1), global.options);
+    }
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
     console.error(`Error: ${err.message}`);

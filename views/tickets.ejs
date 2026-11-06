@@ -1,0 +1,77 @@
+<%- include("partials/header", { title: "Tickets · Dev Firm" }) %>
+<div class="split">
+  <div class="grow">
+    <h1>Delivery board</h1>
+    <p class="lead">
+      Every product task, design hand-off, review, QA result, and bug. Tickets flow
+      <span class="mono small">todo → design → team_review → in_progress → in_review → qa → done</span>
+      and are mirrored to Jira when it is configured.
+    </p>
+  </div>
+  <a class="button secondary" href="/build">New build</a>
+</div>
+
+<% if (settings.jiraConfigured) { %>
+<div class="banner success">
+  Jira sync is active: <strong><%= settings.jiraBaseUrl %></strong> · project
+  <strong><%= settings.jiraProjectKey %></strong> (<%= settings.jiraProjectName %>).
+</div>
+<% } else { %>
+<div class="banner">
+  Jira sync is off. Tickets are tracked locally.
+  <% if (settings.jiraEmail || settings.jiraApiToken) { %>
+  Add both an Atlassian email and API token in <a href="/settings">Settings</a> to enable it.
+  <% } else { %>
+  Add Jira credentials in <a href="/settings">Settings</a> to create and sync project
+  <span class="mono"><%= settings.jiraProjectKey %></span>.
+  <% } %>
+</div>
+<% } %>
+
+<% if (!tickets || !tickets.length) { %>
+<div class="empty">No tickets yet. Run a build to create an epic and its tasks.</div>
+<% } else { %>
+<h2>Board</h2>
+<div class="board">
+  <% for (const status of columns) { %>
+  <section class="board-column">
+    <h3><%= status.replace(/_/g, " ") %> <span class="muted small">(<%= board[status].length %>)</span></h3>
+    <% for (const ticket of board[status]) { %>
+    <a class="board-card" href="/tickets/<%= ticket.key %>">
+      <div class="small muted mono"><%= ticket.key %><% if (ticket.jira_key) { %> · Jira <%= ticket.jira_key %><% } %></div>
+      <div><strong><%= ticket.title %></strong></div>
+      <div class="small muted">
+        <span class="badge"><%= ticket.type %></span>
+        <%= ticket.assignee || "unassigned" %>
+      </div>
+      <% if (ticket.parent_key) { %>
+      <div class="small muted">parent: <%= ticket.parent_key %></div>
+      <% } %>
+    </a>
+    <% } %>
+  </section>
+  <% } %>
+</div>
+
+<h2>All tickets</h2>
+<div class="card table-wrap">
+  <table>
+    <thead><tr><th>Key</th><th>Type</th><th>Title</th><th>Status</th><th>Assignee</th><th>Parent</th><th>Jira</th><th>Updated</th></tr></thead>
+    <tbody>
+    <% for (const ticket of tickets) { %>
+      <tr>
+        <td class="mono small"><a href="/tickets/<%= ticket.key %>"><%= ticket.key %></a></td>
+        <td><span class="badge"><%= ticket.type %></span></td>
+        <td><%= ticket.title %></td>
+        <td><span class="badge <%= ticket.status %>"><%= ticket.status %></span></td>
+        <td class="small"><%= ticket.assignee || "—" %></td>
+        <td class="small mono"><%= ticket.parent_key || "—" %></td>
+        <td class="small mono"><%= ticket.jira_key || "—" %></td>
+        <td class="small muted"><%= String(ticket.updated_at || "").slice(0, 16).replace("T", " ") %></td>
+      </tr>
+    <% } %>
+    </tbody>
+  </table>
+</div>
+<% } %>
+<%- include("partials/footer") %>

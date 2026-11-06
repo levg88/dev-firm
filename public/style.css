@@ -275,3 +275,56 @@ summary { cursor: pointer; color: var(--navy); font-weight: 600; font-size: 14px
 .artifact { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 14px; }
 .artifact:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
 .artifact h4 { margin: 0 0 8px; font-size: 14px; }
+
+/* ── delivery board ─────────────────────────────────────────────────────── */
+.board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(190px, 1fr);
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+.board-column {
+  background: #fbfcfd;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px;
+  min-height: 120px;
+}
+.board-column h3 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+}
+.board-card {
+  display: block;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 10px;
+  margin-bottom: 8px;
+  color: var(--ink);
+}
+.board-card:hover { border-color: #b9c2d4; text-decoration: none; }
+.board-card strong { font-size: 13.5px; }
+
+.badge.design, .badge.team_review { background: var(--amber-soft); color: var(--amber); }
+.badge.in_progress, .badge.in_review, .badge.qa { background: var(--navy-soft); color: var(--navy); }
+.badge.blocked { background: var(--red-soft); color: var(--red); }
+
+table.plain th { width: 34%; text-transform: none; letter-spacing: 0; font-size: 12.5px; }
+.ticket-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #f8f9fb;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  max-height: 520px;
+  overflow: auto;
+}

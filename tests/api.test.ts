@@ -44,6 +44,18 @@ describe('web app', () => {
     expect(detail.status).toBe(200);
     expect(detail.text).toContain('product_spec.md');
     expect(detail.text).toContain('qa_report.md');
+    expect(detail.text).toContain('Tickets');
+
+    const board = await agent.get('/tickets');
+    expect(board.status).toBe(200);
+    expect(board.text).toContain('Delivery board');
+    const ticketKey = board.text.match(/CAREER-\d+/)?.[0];
+    expect(ticketKey).toBeTruthy();
+
+    const ticket = await agent.get(`/tickets/${ticketKey}`);
+    expect(ticket.status).toBe(200);
+    expect(ticket.text).toContain('History');
+    expect(ticket.text).toContain(String(ticketKey));
   });
 
   it('rejects an empty brief', async () => {

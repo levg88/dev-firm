@@ -1,10 +1,23 @@
 import { Settings } from '../config';
 import { LLMClient } from '../llm/base';
 import { Agent, AgentResult } from './base';
-import { Architecture, ProductSpec, qaReportSchema } from './build_schemas';
+import { Architecture, ProductSpec, TaskSpec, qaReportSchema } from './build_schemas';
 import { QA as QAPrompt } from './prompts';
 import { runAgent } from './runner';
 import { makeTools, Sandbox } from './tools';
+
+export interface QATicket {
+  key: string;
+  task: TaskSpec;
+  role?: string;
+}
+
+export interface QAOptions {
+  workflowRunId?: number | null;
+  iteration?: number;
+  tickets?: QATicket[];
+  feedback?: string;
+}
 
 export class QA {
   readonly role = 'qa';
@@ -15,7 +28,7 @@ export class QA {
     spec: ProductSpec,
     architecture: Architecture,
     sandbox: Sandbox,
-    options: { workflowRunId?: number | null } = {},
+    options: QAOptions = {},
   ): Promise<AgentResult> {
     const agent = new Agent(
       {
@@ -29,12 +42,26 @@ export class QA {
       makeTools(sandbox, { readOnly: true }),
     );
     const files = sandbox.listFiles({});
-    const task =
-      'Review the implementation and run the tests.\n\n' +
-      `## SPEC\n${spec.markdown}\n\n` +
-      `## ARCHITECTURE\n${architecture.markdown}\n\n` +
-      `## FILE PLAN\n${JSON.stringify(architecture)}\n\n` +
-      `## FILES PRESENT\n${files.slice(0, 200).map((file: string) => `- ${file}`).join('\n')}`;
+    const tickets = (options.tickets ?? [])
+      .map((entry) => `- [${entry.key}] ${entry.task.title} (owner: ${entry.role ?? 'developer'})`)
+      .join('\n');
+    const task = [
+      `Verify iteration ${options.iteration ?? 1} of the implementation and run the tests.`,
+      '',
+      `## SPEC\n${spec.markdown}`,
+      '',
+      `## ARCHITECTURE\n${architecture.markdown}`,
+      '',
+      `## FILE PLAN\n${JSON.stringify(architecture)}`,
+      '',
+      '## TICKETS UNDER TEST',
+      tickets || '(all product acceptance criteria)',
+      '',
+      `## FILES PRESENT\n${files.slice(0, 200).map((file: string) => `- ${file}`).join('\n')}`,
+      options.feedback ? `\n## PREVIOUS QA FEEDBACK\n${options.feedback}` : '',
+      '',
+      'Run the tests. If anything fails, create one structured bug per concrete failure.',
+    ].join('\n');
     return runAgent(this.settings, agent, {
       workflow: 'build',
       role: 'qa',

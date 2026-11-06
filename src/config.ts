@@ -116,10 +116,20 @@ export class Settings {
   maxTokens: number;
   timeout: number;
   maxAgentSteps: number;
+  maxBuildIterations: number;
   allowHeuristicFallback: boolean;
   host: string;
   port: number;
   setupComplete: boolean;
+  jiraEnabled: boolean;
+  jiraBaseUrl: string;
+  jiraEmail: string;
+  jiraApiToken: string;
+  jiraProjectKey: string;
+  jiraProjectName: string;
+  jiraAutoCreateProject: boolean;
+  jiraDefaultAccountId: string;
+  jiraAssigneeAccountIds: Record<string, string>;
 
   constructor(values: {
     home: string;
@@ -136,10 +146,20 @@ export class Settings {
     maxTokens: number;
     timeout: number;
     maxAgentSteps: number;
+    maxBuildIterations: number;
     allowHeuristicFallback: boolean;
     host: string;
     port: number;
     setupComplete: boolean;
+    jiraEnabled: boolean;
+    jiraBaseUrl: string;
+    jiraEmail: string;
+    jiraApiToken: string;
+    jiraProjectKey: string;
+    jiraProjectName: string;
+    jiraAutoCreateProject: boolean;
+    jiraDefaultAccountId: string;
+    jiraAssigneeAccountIds: Record<string, string>;
   }) {
     this.home = values.home;
     this.dataDir = values.home;
@@ -159,10 +179,20 @@ export class Settings {
     this.maxTokens = values.maxTokens;
     this.timeout = values.timeout;
     this.maxAgentSteps = values.maxAgentSteps;
+    this.maxBuildIterations = values.maxBuildIterations;
     this.allowHeuristicFallback = values.allowHeuristicFallback;
     this.host = values.host;
     this.port = values.port;
     this.setupComplete = values.setupComplete;
+    this.jiraEnabled = values.jiraEnabled;
+    this.jiraBaseUrl = values.jiraBaseUrl;
+    this.jiraEmail = values.jiraEmail;
+    this.jiraApiToken = values.jiraApiToken;
+    this.jiraProjectKey = values.jiraProjectKey;
+    this.jiraProjectName = values.jiraProjectName;
+    this.jiraAutoCreateProject = values.jiraAutoCreateProject;
+    this.jiraDefaultAccountId = values.jiraDefaultAccountId;
+    this.jiraAssigneeAccountIds = values.jiraAssigneeAccountIds;
   }
 
   static load(): Settings {
@@ -187,6 +217,23 @@ export class Settings {
         process.env.OPENCODE_API_KEY,
     );
 
+    const jiraEmail = process.env.JIRA_EMAIL || process.env.DEV_FIRM_JIRA_EMAIL || '';
+    const jiraApiToken = process.env.JIRA_API_TOKEN || process.env.DEV_FIRM_JIRA_API_TOKEN || '';
+    let jiraAssigneeAccountIds: Record<string, string> = {};
+    const rawAssignees = process.env.JIRA_ASSIGNEES_JSON || process.env.DEV_FIRM_JIRA_ASSIGNEES_JSON || '';
+    if (rawAssignees) {
+      try {
+        const parsed = JSON.parse(rawAssignees);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          jiraAssigneeAccountIds = Object.fromEntries(
+            Object.entries(parsed).map(([key, value]) => [key, String(value ?? '')]),
+          );
+        }
+      } catch {
+        jiraAssigneeAccountIds = {};
+      }
+    }
+
     const settings = new Settings({
       home,
       provider,
@@ -200,12 +247,29 @@ export class Settings {
       opencodeBaseUrl: cleanUrl(process.env.OPENCODE_BASE_URL || OPENCODE_BASE_URL),
       temperature: envFloat('DEV_FIRM_TEMPERATURE', 0.2),
       maxTokens: envInt('DEV_FIRM_MAX_TOKENS', 8192),
-      timeout: envFloat('DEV_FIRM_TIMEOUT', 180),
-      maxAgentSteps: envInt('DEV_FIRM_MAX_STEPS', 16),
+      timeout: envFloat('DEV_FIRM_TIMEOUT', 600),
+      maxAgentSteps: envInt('DEV_FIRM_MAX_STEPS', 24),
+      maxBuildIterations: envInt('DEV_FIRM_MAX_ITERATIONS', 5),
       allowHeuristicFallback: envBool('DEV_FIRM_HEURISTIC_FALLBACK', true),
       host: process.env.DEV_FIRM_HOST || '127.0.0.1',
       port: envInt('DEV_FIRM_PORT', 8766),
       setupComplete: envBool('DEV_FIRM_SETUP_COMPLETE', envConfigured),
+      jiraEnabled: envBool(
+        'DEV_FIRM_JIRA_ENABLED',
+        Boolean(jiraEmail && jiraApiToken && process.env.DEV_FIRM_JIRA_ENABLED !== 'false'),
+      ),
+      jiraBaseUrl: cleanUrl(
+        process.env.JIRA_BASE_URL || process.env.DEV_FIRM_JIRA_BASE_URL || 'https://agentsvibecoding.atlassian.net',
+      ),
+      jiraEmail,
+      jiraApiToken,
+      jiraProjectKey: process.env.JIRA_PROJECT_KEY || process.env.DEV_FIRM_JIRA_PROJECT_KEY || 'CAREER',
+      jiraProjectName:
+        process.env.JIRA_PROJECT_NAME || process.env.DEV_FIRM_JIRA_PROJECT_NAME || 'Career Team',
+      jiraAutoCreateProject: envBool('DEV_FIRM_JIRA_AUTO_CREATE', true),
+      jiraDefaultAccountId:
+        process.env.JIRA_ACCOUNT_ID || process.env.DEV_FIRM_JIRA_ACCOUNT_ID || '',
+      jiraAssigneeAccountIds,
     });
     settings.ensureDirs();
     return settings;
@@ -258,6 +322,9 @@ export class Settings {
     if ('max_tokens' in values) this.maxTokens = asInt('max_tokens', this.maxTokens);
     if ('timeout' in values) this.timeout = asFloat('timeout', this.timeout);
     if ('max_agent_steps' in values) this.maxAgentSteps = asInt('max_agent_steps', this.maxAgentSteps);
+    if ('max_build_iterations' in values) {
+      this.maxBuildIterations = Math.max(1, asInt('max_build_iterations', this.maxBuildIterations));
+    }
     if ('allow_heuristic_fallback' in values) {
       this.allowHeuristicFallback = asBool('allow_heuristic_fallback', this.allowHeuristicFallback);
     }
@@ -266,6 +333,41 @@ export class Settings {
     if ('setup_complete' in values) {
       this.setupComplete = asBool('setup_complete', this.setupComplete);
     }
+    if ('jira_enabled' in values) this.jiraEnabled = asBool('jira_enabled', this.jiraEnabled);
+    if ('jira_base_url' in values) {
+      this.jiraBaseUrl = cleanUrl(values.jira_base_url) || 'https://agentsvibecoding.atlassian.net';
+    }
+    if ('jira_email' in values) this.jiraEmail = values.jira_email.trim();
+    if ('jira_api_token' in values) this.jiraApiToken = values.jira_api_token.trim();
+    if ('jira_project_key' in values) {
+      const key = values.jira_project_key.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '');
+      this.jiraProjectKey = key || 'CAREER';
+    }
+    if ('jira_project_name' in values) {
+      this.jiraProjectName = values.jira_project_name.trim() || 'Career Team';
+    }
+    if ('jira_auto_create' in values) {
+      this.jiraAutoCreateProject = asBool('jira_auto_create', this.jiraAutoCreateProject);
+    }
+    if ('jira_default_account_id' in values) {
+      this.jiraDefaultAccountId = values.jira_default_account_id.trim();
+    }
+    if ('jira_assignees_json' in values) {
+      try {
+        const parsed = JSON.parse(values.jira_assignees_json);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          this.jiraAssigneeAccountIds = Object.fromEntries(
+            Object.entries(parsed).map(([key, value]) => [key, String(value ?? '')]),
+          );
+        }
+      } catch {
+        // Ignore malformed mappings; the default account continues to be used.
+      }
+    }
+  }
+
+  get jiraConfigured(): boolean {
+    return Boolean(this.jiraEnabled && this.jiraEmail && this.jiraApiToken);
   }
 
   configValues(options: { includeSecrets?: boolean } = {}): Record<string, string> {
@@ -280,15 +382,25 @@ export class Settings {
       max_tokens: String(this.maxTokens),
       timeout: String(this.timeout),
       max_agent_steps: String(this.maxAgentSteps),
+      max_build_iterations: String(this.maxBuildIterations),
       allow_heuristic_fallback: this.allowHeuristicFallback ? 'true' : 'false',
       host: this.host,
       port: String(this.port),
       setup_complete: this.setupComplete ? 'true' : 'false',
+      jira_enabled: this.jiraEnabled ? 'true' : 'false',
+      jira_base_url: this.jiraBaseUrl,
+      jira_email: this.jiraEmail,
+      jira_project_key: this.jiraProjectKey,
+      jira_project_name: this.jiraProjectName,
+      jira_auto_create: this.jiraAutoCreateProject ? 'true' : 'false',
+      jira_default_account_id: this.jiraDefaultAccountId,
+      jira_assignees_json: JSON.stringify(this.jiraAssigneeAccountIds),
     };
     if (options.includeSecrets) {
       values.api_key = this.apiKey;
       values.anthropic_api_key = this.anthropicApiKey;
       values.opencode_api_key = this.opencodeApiKey;
+      values.jira_api_token = this.jiraApiToken;
     }
     return values;
   }
@@ -324,9 +436,24 @@ export class Settings {
       temperature: this.temperature,
       max_tokens: this.maxTokens,
       max_agent_steps: this.maxAgentSteps,
+      max_build_iterations: this.maxBuildIterations,
       heuristic_fallback: this.allowHeuristicFallback,
       setup_complete: this.setupComplete,
       api_key_hint: this.apiKeyHint,
+      jira_enabled: this.jiraEnabled,
+      jira_configured: this.jiraConfigured,
+      jira_base_url: this.jiraBaseUrl,
+      jira_project_key: this.jiraProjectKey,
+      jira_project_name: this.jiraProjectName,
+      jira_email: this.jiraEmail,
+      jira_token_hint: this.jiraTokenHint,
     };
+  }
+
+  get jiraTokenHint(): string {
+    const token = this.jiraApiToken;
+    if (!token) return '';
+    if (token.length <= 8) return '••••••••';
+    return `${token.slice(0, 3)}…${token.slice(-4)}`;
   }
 }

@@ -1,15 +1,21 @@
 # Dev Firm
 
 A small, local-first **boutique software development firm run by agents**. Describe an
-application and a five-role team takes it from brief to tested code:
+application and a seven-role team takes it from brief to tested code through a real
+delivery flow:
 
-**Product Manager → Architect → Developer → Tech Lead → QA**
+**Product Manager → Architect → Team Lead → Backend / Frontend Developers → Tech Lead → QA**
 
 The firm first validates the target project (typecheck, build, tests), then the product
-manager writes the PRD, the architect writes the design documents, the developer writes the
-code, the tech lead reviews against the PRD and design, and QA runs the test suite. Every
-agent call and artifact is recorded in a local SQLite database, and the produced documents
-and code are committed to git along the way.
+manager writes the PRD and a task breakdown, the architect writes the design documents,
+and the team lead reviews the design and routes every task to the right developer. The
+developers implement and hand off to the tech lead, who rejects back to the developer or
+approves to QA. QA either closes the tickets with evidence or opens linked bugs for
+another loop. The delivery loop repeats until QA passes or the iteration limit is reached.
+
+Every task and bug lives on a local **ticket board** and is mirrored to **Jira** when
+credentials are configured. Every agent call and artifact is recorded in a local SQLite
+database, and the produced documents and code are committed to git along the way.
 
 > This is the development firm. The career firm (Office Manager, Headhunter, Resume
 > Writer) lives separately at
@@ -23,33 +29,40 @@ and code are committed to git along the way.
                          YOUR BRIEF
                              │
                     ┌────────▼─────────┐
-                    │  Product Manager │  product spec, user stories,
-                    │      agent       │  acceptance criteria, non-goals, risks
+                    │  Product Manager │  PRD, user stories, acceptance
+                    │      agent       │  criteria + task breakdown
                     └────────┬─────────┘
-                             │
+                             │  creates epic + tasks, assigns architect
                     ┌────────▼─────────┐
                     │    Architect     │  stack, file plan, data model,
                     │      agent       │  interfaces, test plan
                     └────────┬─────────┘
-                             │
+                             │  design attached to every task
                     ┌────────▼─────────┐
-                    │    Developer     │  real files written to the
-                    │      agent       │  run workspace, tests run
+                    │    Team Lead     │  design review + per-task routing
+                    │      agent       │  (rejects back to architect)
                     └────────┬─────────┘
                              │
+              ┌──────────────┴──────────────┐
+              │                             │
+     ┌────────▼─────────┐          ┌────────▼─────────┐
+     │ Backend Developer│          │Frontend Developer│  real files written
+     │      agent       │          │      agent       │  to the workspace
+     └────────┬─────────┘          └────────┬─────────┘
+              └──────────────┬──────────────┘
                     ┌────────▼─────────┐
-                    │     Tech Lead    │  code review against the
-                    │      agent       │  PRD and design docs
+                    │     Tech Lead    │  code review against PRD/design
+                    │      agent       │  reject → developer loop
                     └────────┬─────────┘
-                             │
+                             │ approve
                     ┌────────▼─────────┐
-                    │       QA         │  acceptance check, test run,
-                    │      agent       │  pass/fail report + feedback loop
-                    └────────┴─────────┘
-                             │
+                    │       QA         │  acceptance checks + tests
+                    │      agent       │  pass → close with evidence
+                    └────────┬─────────┘  fail → linked bugs → team lead
+                             │                    → developer loop
                  ┌───────────▼────────────┐
-                 │ SQLite + workspace     │  workflows, agent calls,
-                 │ local storage          │  artifacts, generated files
+                 │ SQLite + ticket board  │  workflows, tickets, events,
+                 │ + optional Jira sync   │  artifacts, generated files
                  └────────────────────────┘
 ```
 
@@ -57,14 +70,41 @@ and code are committed to git along the way.
 
 | Agent | Responsibility | Output |
 |---|---|---|
-| **Product Manager** | Turns a rough brief into a scoped, build-ready product specification. | Spec, user stories, acceptance criteria, non-goals, risks |
+| **Product Manager** | Turns a rough brief into a scoped, build-ready product specification and task breakdown. | Spec, user stories, acceptance criteria, non-goals, risks, tasks |
 | **Architect** | Designs the smallest implementable architecture and a concrete file plan. | Stack, file plan, data model, interfaces, test plan |
-| **Developer** | Implements the app with real file and command tools inside a sandboxed workspace. | Working files, tests run, implementation report |
-| **Tech Lead** | Reviews the delivered code against the PRD and design documents. | Review verdict, summary, blocking issues |
-| **QA** | Reviews the result against the acceptance criteria and runs the test suite. | Pass/fail report, issues, recommendation |
+| **Team Lead** | Reviews the design, routes every task to a developer, and triages QA bugs. | Design verdict, assignments, triage notes |
+| **Backend Developer** | Implements the server, data layer, API, CLI, and persistence. | Working files, tests run, implementation report |
+| **Frontend Developer** | Implements the UI, templates, components, client behaviour, and styling. | Working files, tests run, implementation report |
+| **Tech Lead** | Reviews delivered code against the PRD and design. Rejections go back to the developer. | Review verdict, summary, blocking issues |
+| **QA** | Verifies acceptance criteria, runs the test suite, and opens structured bugs. | Pass/fail report, bugs, evidence, recommendation |
 
-If the tech lead raises blocking issues, the workflow continues to QA; if QA fails, the
-developer gets one feedback pass to fix the implementation before the workflow finishes.
+### Delivery flow
+
+```text
+PM creates epic + tasks            → assign architect
+Architect design                   → attach to tasks, assign team lead
+Team lead review                   → approve + route tasks; reject → architect (max 2 rounds)
+Developer implements               → assign tech lead
+Tech lead review                   → reject → developer; approve → QA
+QA verifies                        → pass → close tasks with evidence
+                                   → fail → open linked bugs → team lead triage
+                                             → developer → tech lead → QA ...
+```
+
+The loop is bounded by **Max delivery iterations** (`DEV_FIRM_MAX_ITERATIONS`, default
+`5`). When the limit is reached the epic is marked `blocked`, the open tickets remain on
+the board, and a `blocked_report.md` is written. Bug tickets use the same delivery loop as
+feature tasks.
+
+### Ticket statuses
+
+```text
+todo → design → team_review → in_progress → in_review → qa → done
+                                                   └→ blocked
+```
+
+Every transition and comment is recorded in `ticket_events`. When Jira is configured, the
+same tickets are created as Jira issues, linked, commented on, transitioned, and closed.
 
 ---
 
@@ -94,8 +134,12 @@ From the CLI:
 
 ```bash
 npm run cli -- build "A local CLI that manages a reading list with tags and JSON export" \
-  --title "Reading list"
+  --title "Reading list" --max-iterations 5
 ```
+
+The web UI adds **Max delivery iterations** and an optional **Existing repository** path to
+the build form. The **Tickets** page shows the board and the full history of every task
+and bug.
 
 Each run gets its own workspace:
 
@@ -120,9 +164,14 @@ the background, so the page refreshes itself until the team is done.
 npm run cli -- init                          Initialise the database and data directories
 npm run cli -- config                      Print effective config (no secrets)
 npm run cli -- doctor                      Check provider, dependencies, and DB stats
-npm run cli -- build "BRIEF" --title "T"  Run validate → PM → architect → developer → tech lead → QA
+npm run cli -- build "BRIEF" --title "T" --repo PATH --max-iterations 5
+                                            Run validate → PM → architect → team lead →
+                                            developers → tech lead → QA (loops until pass)
 npm run cli -- serve --host 127.0.0.1 --port 8766
-npm run cli -- agents --prompt product_manager    List roles / print a role prompt
+npm run cli -- agents --prompt team_lead   List roles / print a role prompt
+npm run cli -- jira status                 Show Jira config and verify the project
+npm run cli -- jira init --project-key CAREER --project-name "Career Team"
+                                            Create/verify the Jira project
 ```
 
 `--home DIR` overrides the data directory for any command.
@@ -139,9 +188,10 @@ npm run cli -- build "Add dark mode to the career firm" \
 ```
 
 The pipeline then validates the target project (typecheck, build, tests), the product
-writes the PRD and commits it, the architect writes the design documents, the developer
-writes the code, the tech lead reviews against the PRD and design, QA runs the tests, and
-the final commit captures the new agents, documents, and code.
+manager writes the PRD and commits it, the architect writes the design documents, the team
+lead reviews and routes the tasks, the developers write the code, the tech lead reviews
+against the PRD and design, QA runs the tests, and the final commit captures the new
+agents, documents, code, and ticket history.
 
 ---
 
@@ -174,12 +224,22 @@ wizard, the stored configuration takes precedence.
 | `OPENCODE_BASE_URL` | `https://opencode.ai/inference/openai/v1` | OpenCode OpenAI-compatible endpoint |
 | `DEV_FIRM_TEMPERATURE` | `0.2` | Generation temperature |
 | `DEV_FIRM_MAX_TOKENS` | `8192` | Per-call limit |
-| `DEV_FIRM_TIMEOUT` | `180` | Provider request timeout (seconds) |
-| `DEV_FIRM_MAX_STEPS` | `16` | Tool-calling loop cap |
+| `DEV_FIRM_TIMEOUT` | `600` | Provider request timeout (seconds) |
+| `DEV_FIRM_MAX_STEPS` | `24` | Tool-calling loop cap |
+| `DEV_FIRM_MAX_ITERATIONS` | `5` | Max delivery loops before the epic is blocked |
 | `DEV_FIRM_HEURISTIC_FALLBACK` | `true` | Fall back to offline output if a model call fails |
 | `DEV_FIRM_HOME` | `./data` | Database, workspaces, run artifacts |
 | `DEV_FIRM_HOST` | `127.0.0.1` | Bind address |
 | `DEV_FIRM_PORT` | `8766` | Bind port |
+| `JIRA_EMAIL` | — | Atlassian account email |
+| `JIRA_API_TOKEN` | — | Atlassian API token |
+| `JIRA_BASE_URL` | `https://agentsvibecoding.atlassian.net` | Jira site URL |
+| `JIRA_PROJECT_KEY` | `CAREER` | Jira project key |
+| `JIRA_PROJECT_NAME` | `Career Team` | Jira project name |
+| `JIRA_ACCOUNT_ID` | — | Default assignee account ID |
+| `JIRA_ASSIGNEES_JSON` | `{}` | Optional role → Jira account ID map |
+| `DEV_FIRM_JIRA_ENABLED` | auto | Set `false` to keep tickets local only |
+| `DEV_FIRM_JIRA_AUTO_CREATE` | `true` | Create the project if it does not exist |
 
 Provider behaviour:
 
@@ -196,6 +256,30 @@ Provider behaviour:
 - **Offline mode** is fully local and deterministic.
 - If a provider is selected but its key is missing, the app degrades to offline mode with
   a visible banner instead of crashing.
+
+### Jira task tracking
+
+The local ticket board is always available. To mirror it to Jira, add an Atlassian email
+and API token (`id.atlassian.com → Security → API tokens`) in **Settings → Task tracker /
+Jira**, or set `JIRA_EMAIL` and `JIRA_API_TOKEN`. Then run:
+
+```bash
+npm run cli -- jira init --project-key CAREER --project-name "Career Team"
+```
+
+This verifies the project or creates it (Kanban template) if it is missing, and prints the
+board URL. During a build the firm:
+
+- creates an epic and one Jira issue per product task;
+- attaches the design as comments and transitions each issue through the workflow;
+- represents agent ownership with an assignee account ID plus `agent-<role>` labels;
+- links QA bugs to their parent task;
+- closes tickets with the QA evidence.
+
+Jira sync is best-effort: a Jira failure is recorded on the ticket as a sync warning and
+never blocks the local delivery loop. Agent roles are not Jira users, so by default the
+authenticated account is used as the assignee. Use `JIRA_ASSIGNEES_JSON` (for example
+`{"backend_developer":"5b10ac8d..."}`) to map roles to real account IDs.
 
 ---
 
@@ -221,8 +305,10 @@ SQLite (`data/dev.db`):
 |---|---|
 | `workflow_runs` | Build runs, status, brief, workspace path, error |
 | `agent_runs` | Role, provider, model, tokens, input/output audit |
-| `artifacts` | Product specs, architecture, developer reports, QA reports |
-| `app_settings` | Provider, model, base URLs, keys, defaults saved by the setup wizard |
+| `artifacts` | Product specs, architecture, design reviews, bug triage, developer/QA reports, ticket snapshots |
+| `tickets` | Local mirror of tasks, bugs, epics, statuses, assignees, links, Jira keys, evidence |
+| `ticket_events` | Every transition, assignment, comment, link, and closing evidence |
+| `app_settings` | Provider, model, base URLs, keys, Jira config, iteration limit, defaults |
 
 Artifacts are also linked to the files in each run workspace. Files never leave your
 machine unless your configured model provider receives the prompt.
@@ -235,16 +321,24 @@ Each agent lives in its own module under `src/agents/`:
 
 ```text
 agents/
-  product_manager.ts  agent
-  architect.ts        agent
-  developer.ts        agent
-  qa.ts               agent
+  product_manager.ts  PM agent (spec + task breakdown)
+  architect.ts        design agent
+  team_lead.ts        design review, task routing, bug triage
+  developer.ts        backend/frontend developer agent (parameterised)
+  tech_lead.ts        code review agent
+  qa.ts               verification agent
   build_team.ts       facade used by the pipeline
   build_schemas.ts    zod contracts between roles
   base.ts             shared Agent / AgentSpec runtime
   runner.ts           schema validation, retries, audit logging
   tools.ts            sandboxed file and command tools
   prompts.ts          system prompts for every role
+
+tracker/
+  types.ts            tracker interface and ticket types
+  local.ts            SQLite ticket mirror, transitions, events
+  jira.ts             Jira REST client + remote sync adapter
+  index.ts            createTracker(settings)
 ```
 
 To add a role:
@@ -281,9 +375,11 @@ Implement `complete(...)` on an `LLMClient` subclass in `src/llm/`, normalize to
 npm test
 ```
 
-Covered: the build pipeline, the agent tool-calling loop, JSON repair, sandbox guards,
-SQLite round-trips, the QA report model, the startup setup wizard and config persistence,
-and the web routes (build creation, status polling, and audit pages).
+Covered: the mock SDLC pipeline (epic/task creation through closing evidence), the local
+ticket tracker (transitions, bug links, event history), the agent tool-calling loop, JSON
+repair, loose schema coercion for tasks/bugs/design reviews, sandbox guards, SQLite
+round-trips, the startup setup wizard and config persistence, and the web routes (build
+creation, status polling, audit pages, ticket board, and ticket detail).
 
 ---
 
@@ -293,6 +389,10 @@ and the web routes (build creation, status polling, and audit pages).
   to untrusted networks.
 - **Model quality matters:** with a small or offline model, expect partial implementations.
   The QA pass and test run are the safety net; always review the generated code.
+- **Bounded loops:** the delivery loop stops at the configured iteration limit and leaves
+  a `blocked` epic plus open tickets for a human to inspect. It does not retry forever.
+- **Jira sync is best-effort:** local tickets are the source of truth during a run; a Jira
+  outage shows as a sync warning rather than failing the build.
 - **No deployment:** the firm writes code and runs tests. Building containers, deploying,
   or provisioning infrastructure is out of scope.
 - **Workspace size:** builds are intended for small local-first applications.

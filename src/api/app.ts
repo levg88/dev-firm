@@ -203,11 +203,32 @@ export function createApp(initialSettings?: Settings): express.Express {
       temperature: bodyString(req, 'temperature') || String(settings.temperature),
       max_tokens: bodyString(req, 'max_tokens') || String(settings.maxTokens),
       max_agent_steps: bodyString(req, 'max_agent_steps') || String(settings.maxAgentSteps),
+      max_build_iterations:
+        bodyString(req, 'max_build_iterations') || String(settings.maxBuildIterations),
       allow_heuristic_fallback: bodyBool(req, 'allow_heuristic_fallback') ? 'true' : 'false',
       host: settings.host,
       port: String(settings.port),
       setup_complete: 'true',
+      jira_enabled: bodyBool(req, 'jira_enabled') ? 'true' : 'false',
+      jira_base_url:
+        bodyString(req, 'jira_base_url').trim() ||
+        settings.jiraBaseUrl ||
+        'https://agentsvibecoding.atlassian.net',
+      jira_email: bodyString(req, 'jira_email').trim(),
+      jira_project_key: bodyString(req, 'jira_project_key').trim() || settings.jiraProjectKey,
+      jira_project_name: bodyString(req, 'jira_project_name').trim() || settings.jiraProjectName,
+      jira_auto_create: bodyBool(req, 'jira_auto_create') ? 'true' : 'false',
+      jira_default_account_id: bodyString(req, 'jira_default_account_id').trim(),
     };
+    const jiraTokenCleared = bodyBool(req, 'clear_jira_token');
+    const enteredJiraToken = jiraTokenCleared
+      ? ''
+      : bodyString(req, 'jira_api_token').trim();
+    if (jiraTokenCleared || enteredJiraToken) {
+      updates.jira_api_token = enteredJiraToken;
+    }
+    const jiraAssignees = bodyString(req, 'jira_assignees_json').trim();
+    if (jiraAssignees) updates.jira_assignees_json = jiraAssignees;
     if (provider === 'anthropic') updates.anthropic_base_url = resolvedBase;
     else if (provider === 'ollama') updates.ollama_base_url = resolvedBase;
     else if (provider === 'opencode') updates.opencode_base_url = resolvedBase;
@@ -254,7 +275,15 @@ export function createApp(initialSettings?: Settings): express.Express {
       model: settings.model,
       stats: stats(),
       agents: Object.fromEntries(
-        ['product_manager', 'architect', 'developer', 'tech_lead', 'qa'].map((role) => [
+        [
+          'product_manager',
+          'architect',
+          'team_lead',
+          'backend_developer',
+          'frontend_developer',
+          'tech_lead',
+          'qa',
+        ].map((role) => [
           role,
           latest[role]
             ? { status: latest[role].status, model: latest[role].model, finished_at: latest[role].finished_at }
@@ -271,10 +300,39 @@ export function createApp(initialSettings?: Settings): express.Express {
     page(res, 'runs', { workflows, agent_runs: agentRuns, active: 'runs' });
   });
 
+  // ── task tracker ────────────────────────────────────────────────────────────
+  app.get('/tickets', (req, res) => {
+    const tickets = db.withSession(settings.dbPath, (conn) => db.listTickets(conn, null, 300));
+    const columns = ['todo', 'design', 'team_review', 'in_progress', 'in_review', 'qa', 'blocked', 'done'];
+    const board = Object.fromEntries(
+      columns.map((status) => [status, tickets.filter((ticket) => ticket.status === status)]),
+    );
+    page(res, 'tickets', { tickets, board, columns, active: 'tickets' });
+  });
+
+  app.get('/tickets/:key', (req, res) => {
+    const key = String(req.params.key);
+    const ticket = db.withSession(settings.dbPath, (conn) => db.getTicket(conn, key));
+    if (!ticket) {
+      res.status(404).send('Ticket not found');
+      return;
+    }
+    const events = db.withSession(settings.dbPath, (conn) => db.listTicketEvents(conn, key));
+    page(res, 'ticket_detail', { ticket, events, active: 'tickets' });
+  });
+
   // ── agents health ────────────────────────────────────────────────────────────
   app.get('/agents', (req, res) => {
     const latest = db.withSession(settings.dbPath, (conn) => db.latestAgentRunsByRole(conn));
-    const roles = ['product_manager', 'architect', 'developer', 'tech_lead', 'qa'];
+    const roles = [
+      'product_manager',
+      'architect',
+      'team_lead',
+      'backend_developer',
+      'frontend_developer',
+      'tech_lead',
+      'qa',
+    ];
     const agents = roles.map((role) => ({
       role,
       run: latest[role] ?? null,
@@ -296,6 +354,13 @@ export function createApp(initialSettings?: Settings): express.Express {
       return;
     }
     const repoPath = bodyString(req, 'repo_path').trim() || undefined;
+    const maxIterations = Number.parseInt(bodyString(req, 'max_iterations'), 10);
+    if (Number.isFinite(maxIterations) && maxIterations > 0) {
+      settings.maxBuildIterations = Math.max(1, maxIterations);
+      db.withSession(settings.dbPath, (conn) =>
+        db.saveAppSettings(conn, { max_build_iterations: String(settings.maxBuildIterations) }),
+      );
+    }
     const workflowId = db.withSession(settings.dbPath, (conn) =>
       db.createWorkflow(
         conn,
@@ -321,10 +386,12 @@ export function createApp(initialSettings?: Settings): express.Express {
     const agentRuns = db.withSession(settings.dbPath, (conn) =>
       db.listAgentRuns(conn, workflowId, 80),
     );
+    const tickets = db.withSession(settings.dbPath, (conn) => db.listTickets(conn, workflowId, 300));
     res.status(200).render('build_detail', {
       workflow,
       artifacts,
       agent_runs: agentRuns,
+      tickets,
       stats: stats(),
       llm_note: llmNote(settings),
       error: '',

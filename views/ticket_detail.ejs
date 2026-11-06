@@ -1,0 +1,73 @@
+<%- include("partials/header", { title: (ticket ? ticket.key : "Ticket") + " · Dev Firm" }) %>
+<div class="split">
+  <div class="grow">
+    <p class="small muted" style="margin-bottom: 4px;">
+      <a href="/tickets">← Delivery board</a>
+      <% if (ticket.workflow_run_id) { %>· <a href="/build/<%= ticket.workflow_run_id %>">Build #<%= ticket.workflow_run_id %></a><% } %>
+    </p>
+    <h1><%= ticket.title %></h1>
+    <p class="small muted">
+      <span class="mono"><%= ticket.key %></span>
+      <span class="badge"><%= ticket.type %></span>
+      <span class="badge <%= ticket.status %>"><%= ticket.status %></span>
+      <% if (ticket.jira_key) { %>· Jira <span class="mono"><%= ticket.jira_key %></span><% } %>
+    </p>
+  </div>
+</div>
+
+<div class="grid two">
+  <section class="card">
+    <h2 style="margin-top: 0;">Details</h2>
+    <table class="plain">
+      <tr><th>Assignee</th><td><%= ticket.assignee || "—" %></td></tr>
+      <tr><th>Reporter</th><td><%= ticket.reporter || "—" %></td></tr>
+      <tr><th>Parent</th><td class="mono">
+        <% if (ticket.parent_key) { %><a href="/tickets/<%= ticket.parent_key %>"><%= ticket.parent_key %></a><% } else { %>—<% } %>
+      </td></tr>
+      <tr><th>Project</th><td class="mono"><%= ticket.project_key %></td></tr>
+      <tr><th>Created</th><td class="small"><%= String(ticket.created_at || "").slice(0, 16).replace("T", " ") %></td></tr>
+      <tr><th>Updated</th><td class="small"><%= String(ticket.updated_at || "").slice(0, 16).replace("T", " ") %></td></tr>
+    </table>
+    <% if (ticket.labels && ticket.labels.length) { %>
+    <p class="small">
+      <% for (const label of ticket.labels) { %><span class="badge"><%= label %></span> <% } %>
+    </p>
+    <% } %>
+    <% if (ticket.links && ticket.links.length) { %>
+    <h3>Linked tickets</h3>
+    <p class="small">
+      <% for (const link of ticket.links) { %><a href="/tickets/<%= link %>" class="mono"><%= link %></a> <% } %>
+    </p>
+    <% } %>
+    <% if (ticket.sync_error) { %>
+    <div class="banner error small"><strong>Jira sync warning:</strong> <%= ticket.sync_error %></div>
+    <% } %>
+  </section>
+
+  <section class="card">
+    <h2 style="margin-top: 0;">Description</h2>
+    <pre class="ticket-body"><%= ticket.description || "(no description)" %></pre>
+    <% if (ticket.evidence) { %>
+    <h3>Closing evidence</h3>
+    <pre class="ticket-body"><%= ticket.evidence %></pre>
+    <% } %>
+  </section>
+</div>
+
+<h2>History</h2>
+<% if (events && events.length) { %>
+<div class="card">
+  <% for (const event of events) { %>
+  <div class="artifact">
+    <h4>
+      <span class="badge"><%= event.event %></span>
+      <span class="small muted"><%= event.actor || "system" %> · <%= String(event.created_at || "").slice(0, 19).replace("T", " ") %></span>
+    </h4>
+    <% if (event.body) { %><pre class="ticket-body"><%= event.body %></pre><% } %>
+  </div>
+  <% } %>
+</div>
+<% } else { %>
+<div class="empty">No history recorded for this ticket.</div>
+<% } %>
+<%- include("partials/footer") %>

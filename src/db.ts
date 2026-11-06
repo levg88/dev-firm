@@ -56,6 +56,39 @@ CREATE TABLE IF NOT EXISTS app_settings (
     value TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS tickets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workflow_run_id INTEGER REFERENCES workflow_runs(id) ON DELETE CASCADE,
+    project_key TEXT NOT NULL DEFAULT '',
+    key TEXT NOT NULL UNIQUE,
+    jira_key TEXT,
+    type TEXT NOT NULL DEFAULT 'task',
+    title TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'todo',
+    assignee TEXT NOT NULL DEFAULT '',
+    reporter TEXT NOT NULL DEFAULT 'product_manager',
+    parent_key TEXT,
+    labels_json TEXT NOT NULL DEFAULT '[]',
+    links_json TEXT NOT NULL DEFAULT '[]',
+    evidence TEXT,
+    sync_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tickets_workflow ON tickets(workflow_run_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
+
+CREATE TABLE IF NOT EXISTS ticket_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_key TEXT NOT NULL,
+    event TEXT NOT NULL,
+    actor TEXT NOT NULL DEFAULT '',
+    body TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ticket_events_key ON ticket_events(ticket_key);
 `;
 
 export type Row = Record<string, any>;
@@ -300,6 +333,133 @@ export function latestAgentRunsByRole(conn: Conn): Record<string, Row> {
   return out;
 }
 
+// ── tickets / task tracker ───────────────────────────────────────────────────
+
+export interface TicketCreateInput {
+  workflowRunId: number | null;
+  projectKey: string;
+  type: string;
+  title: string;
+  description?: string;
+  status?: string;
+  assignee?: string;
+  reporter?: string;
+  parentKey?: string | null;
+  labels?: string[];
+  links?: string[];
+}
+
+export function ticketFromRow(row: Row): Row {
+  const item: Row = { ...row };
+  item.labels = parseJson(item.labels_json, []);
+  item.links = parseJson(item.links_json, []);
+  delete item.labels_json;
+  delete item.links_json;
+  return item;
+}
+
+export function createTicket(conn: Conn, input: TicketCreateInput): Row {
+  const ts = now();
+  const placeholder = `${input.projectKey}-pending-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const info = conn
+    .prepare(
+      `INSERT INTO tickets
+       (workflow_run_id, project_key, key, jira_key, type, title, description, status,
+        assignee, reporter, parent_key, labels_json, links_json, created_at, updated_at)
+       VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      input.workflowRunId,
+      input.projectKey,
+      placeholder,
+      input.type,
+      input.title,
+      input.description ?? '',
+      input.status ?? 'todo',
+      input.assignee ?? '',
+      input.reporter ?? 'product_manager',
+      input.parentKey ?? null,
+      json(input.labels ?? []),
+      json(input.links ?? []),
+      ts,
+      ts,
+    );
+  const id = Number(info.lastInsertRowid);
+  const key = `${input.projectKey}-${id}`;
+  conn.prepare('UPDATE tickets SET key = ?, updated_at = ? WHERE id = ?').run(key, ts, id);
+  addTicketEvent(conn, key, 'created', input.reporter ?? 'product_manager', input.title);
+  return getTicket(conn, key) as Row;
+}
+
+export function getTicket(conn: Conn, key: string): Row | null {
+  const row = conn.prepare('SELECT * FROM tickets WHERE key = ? OR jira_key = ?').get(key, key) as
+    | Row
+    | undefined;
+  return row ? ticketFromRow(row) : null;
+}
+
+export function listTickets(
+  conn: Conn,
+  workflowRunId: number | null = null,
+  limit = 300,
+): Row[] {
+  const rows =
+    workflowRunId === null
+      ? (conn.prepare('SELECT * FROM tickets ORDER BY id DESC LIMIT ?').all(limit) as Row[])
+      : (conn
+          .prepare('SELECT * FROM tickets WHERE workflow_run_id = ? ORDER BY id ASC LIMIT ?')
+          .all(workflowRunId, limit) as Row[]);
+  return rows.map(ticketFromRow);
+}
+
+export function updateTicketRecord(conn: Conn, key: string, fields: Row): Row | null {
+  const allowed = new Set([
+    'jira_key',
+    'type',
+    'title',
+    'description',
+    'status',
+    'assignee',
+    'reporter',
+    'parent_key',
+    'labels_json',
+    'links_json',
+    'evidence',
+    'sync_error',
+  ]);
+  const updates: Row = {};
+  for (const [field, value] of Object.entries(fields)) {
+    if (!allowed.has(field)) continue;
+    if (field === 'labels_json' || field === 'links_json') updates[field] = json(value);
+    else updates[field] = value;
+  }
+  if (Object.keys(updates).length === 0) return getTicket(conn, key);
+  updates.updated_at = now();
+  const assignments = Object.keys(updates).map((field) => `${field} = ?`).join(', ');
+  conn.prepare(`UPDATE tickets SET ${assignments} WHERE key = ?`).run(...Object.values(updates), key);
+  return getTicket(conn, key);
+}
+
+export function addTicketEvent(
+  conn: Conn,
+  ticketKey: string,
+  event: string,
+  actor = '',
+  body = '',
+): void {
+  conn
+    .prepare(
+      'INSERT INTO ticket_events (ticket_key, event, actor, body, created_at) VALUES (?, ?, ?, ?, ?)',
+    )
+    .run(ticketKey, event, actor, body, now());
+}
+
+export function listTicketEvents(conn: Conn, key: string, limit = 200): Row[] {
+  return conn
+    .prepare('SELECT * FROM ticket_events WHERE ticket_key = ? ORDER BY id ASC LIMIT ?')
+    .all(key, limit) as Row[];
+}
+
 export function stats(conn: Conn): Record<string, number> {
   const count = (table: string): number =>
     Number((conn.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as Row).n);
@@ -307,5 +467,6 @@ export function stats(conn: Conn): Record<string, number> {
     workflow_runs: count('workflow_runs'),
     agent_runs: count('agent_runs'),
     artifacts: count('artifacts'),
+    tickets: count('tickets'),
   };
 }

@@ -10,7 +10,10 @@ export class Architect {
 
   constructor(private settings: Settings, private llm: LLMClient) {}
 
-  async run(spec: ProductSpec, options: { workflowRunId?: number | null } = {}): Promise<AgentResult> {
+  async run(
+    spec: ProductSpec,
+    options: { workflowRunId?: number | null; feedback?: string; round?: number } = {},
+  ): Promise<AgentResult> {
     const agent = new Agent(
       {
         name: 'architect',
@@ -22,10 +25,18 @@ export class Architect {
       this.settings,
     );
     const task =
-      'Design the smallest implementable architecture for this product spec.\n\n' +
+      `Design the smallest implementable architecture for this product spec (round ${options.round ?? 1}).\n\n` +
       `## SPEC\n${spec.markdown}\n\n` +
       `## ACCEPTANCE CRITERIA\n` +
-      spec.acceptance_criteria.map((item: string) => `- ${item}`).join('\n');
+      spec.acceptance_criteria.map((item: string) => `- ${item}`).join('\n') +
+      `\n\n## TASKS\n` +
+      spec.tasks
+        .map(
+          (task, index) =>
+            `${index + 1}. ${task.title} (area: ${task.area})\n   ${task.description}\n   Acceptance: ${task.acceptance_criteria.join('; ')}`,
+        )
+        .join('\n') +
+      (options.feedback ? `\n\n## TEAM LEAD FEEDBACK TO ADDRESS\n${options.feedback}` : '');
     return runAgent(this.settings, agent, {
       workflow: 'build',
       role: 'architect',

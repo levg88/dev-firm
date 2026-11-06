@@ -1,9 +1,10 @@
 <%- include("partials/header") %>
 <h1>Build lab</h1>
 <p class="lead">
-  Describe a small app and the five-role team will take it from brief to tested code:
-  product manager → architect → developer → tech lead → QA. The developer writes real files into an
-  isolated workspace, QA runs the tests, and every artifact is recorded.
+  Describe a small app and the seven-role team will take it from brief to tested code:
+  product manager → architect → team lead → backend/frontend developers → tech lead → QA.
+  The delivery loop repeats until QA passes or the iteration limit is reached. Tasks and
+  bugs are tracked on the ticket board and mirrored to Jira when configured.
 </p>
 
 <section class="card">
@@ -16,6 +17,18 @@
       <div class="field">
         <label for="title">Working title (optional)</label>
         <input id="title" type="text" name="title" placeholder="Inventory tracker">
+      </div>
+      <div class="field">
+        <label for="max_iterations">Max delivery iterations</label>
+        <input id="max_iterations" type="text" name="max_iterations" value="<%= settings.maxBuildIterations %>">
+        <p class="small muted" style="margin: 5px 0 0;">Keep looping dev → tech lead → QA (and bug fixes) until QA passes.</p>
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="repo_path">Existing repository <span class="muted">(optional)</span></label>
+        <input id="repo_path" type="text" name="repo_path" placeholder="/Users/me/Workspace/existing-project">
+        <p class="small muted" style="margin: 5px 0 0;">Leave blank to build in an isolated workspace. Set a path to work on an existing codebase.</p>
       </div>
       <div class="field" style="display: flex; align-items: flex-end;">
         <button type="submit">Run the build team</button>

@@ -15,7 +15,7 @@
 <% if (workflow.status !== "done" && workflow.status !== "failed") { %>
 <div class="card" style="margin-top: 18px;">
   <p><span class="spinner"></span> The build team is working. This page refreshes automatically.</p>
-  <p class="small muted">PM → architect → developer → QA. This can take several minutes.</p>
+  <p class="small muted">PM → architect → team lead → developers → tech lead → QA (looping on failures). This can take several minutes.</p>
 </div>
 <script>
   const timer = setInterval(async () => {
@@ -56,6 +56,30 @@
 </div>
 <% } else { %>
 <div class="empty">No agent calls recorded yet.</div>
+<% } %>
+
+<h2>Tickets</h2>
+<% if (tickets && tickets.length) { %>
+<div class="card table-wrap">
+  <table>
+    <thead><tr><th>Key</th><th>Type</th><th>Title</th><th>Status</th><th>Assignee</th><th>Parent</th><th>Jira</th></tr></thead>
+    <tbody>
+    <% for (const ticket of tickets) { %>
+      <tr>
+        <td class="mono small"><a href="/tickets/<%= ticket.key %>"><%= ticket.key %></a></td>
+        <td><span class="badge"><%= ticket.type %></span></td>
+        <td><%= ticket.title %></td>
+        <td><span class="badge <%= ticket.status %>"><%= ticket.status %></span></td>
+        <td class="small"><%= ticket.assignee || "—" %></td>
+        <td class="small mono"><%= ticket.parent_key || "—" %></td>
+        <td class="small mono"><%= ticket.jira_key || "—" %></td>
+      </tr>
+    <% } %>
+    </tbody>
+  </table>
+</div>
+<% } else { %>
+<div class="empty">No tickets recorded for this build.</div>
 <% } %>
 
 <h2>Artifacts</h2>
