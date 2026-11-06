@@ -164,6 +164,12 @@ export class BuildService {
   }
 
   private async _validate(workflowId: number, workspace: string, sandbox: Sandbox): Promise<string> {
+    const pkgPath = path.join(workspace, 'package.json');
+    if (!fs.existsSync(pkgPath)) {
+      const validation = '# Project validation\n\nNo package.json found in the workspace; skipping build/test validation.';
+      this._artifact(workflowId, workspace, 'validation.md', validation);
+      return validation;
+    }
     const sections: string[] = [];
     for (const script of ['typecheck', 'build', 'test']) {
       const result = await sandbox.runCommand({ command: `npm run ${script}`, timeout: 120000 });
