@@ -229,6 +229,7 @@ wizard, the stored configuration takes precedence.
 | `DEV_FIRM_MAX_TOKENS` | `8192` | Per-call limit |
 | `DEV_FIRM_TIMEOUT` | `600` | Provider request timeout (seconds) |
 | `DEV_FIRM_MAX_STEPS` | `40` | Tool-calling loop cap |
+| `DEV_FIRM_DEBUG` | — | Set to `1` to log every agent tool step to stderr |
 | `DEV_FIRM_MAX_ITERATIONS` | `5` | Max delivery loops before the epic is blocked |
 | `DEV_FIRM_HEURISTIC_FALLBACK` | `true` | Fall back to offline output if a model call fails |
 | `DEV_FIRM_HOME` | `./data` | Database, workspaces, run artifacts |

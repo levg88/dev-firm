@@ -67,6 +67,7 @@ export class Developer {
     const task = [
       `You are the ${isFrontend ? 'frontend' : 'backend'} developer. Implement the assigned tasks in the workspace.`,
       'Use the tools; do not just describe the code.',
+      `You have at most ${this.settings.maxAgentSteps} tool steps. Write package.json and the source files first, then install and test once. Do not spend steps re-reading files.`,
       '',
       '## SPEC',
       spec.markdown,
@@ -82,7 +83,8 @@ export class Developer {
       '',
       '## RUNTIME',
       `- Node.js version: ${process.version.replace(/^v/, '')}`,
-      '- Use current packages: better-sqlite3 ^13, express ^5, ejs ^3, vitest ^3, supertest ^7.',
+      '- Use the built-in node:sqlite module for persistence. Never add native addons (better-sqlite3, sqlite3).',
+      '- Use current packages: express ^5, ejs ^3, vitest ^3, supertest ^7. The test script must be "vitest run".',
       '- Declare every runtime import in dependencies and run npm install before npm test.',
       '- Stop retrying a failing command after two attempts; return the report with the error.',
       '',

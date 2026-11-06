@@ -460,9 +460,7 @@ export class Settings {
   }
 
   get githubTokenHint(): string {
-    const token = this.githubToken;
-    if (!token) return '';
-    if (token.length <= 8) return '••••••••';
-    return `${token.slice(0, 3)}…${token.slice(-4)}`;
+    // Never expose token material, not even a prefix/suffix.
+    return this.githubToken ? 'configured (hidden)' : '';
   }
 }

@@ -77,36 +77,6 @@ export interface AgentResult {
   response: LLMResponse | null;
 }
 
-function extractBracedObject(text: string, startIndex: number): string | null {
-  let i = text.indexOf('{', startIndex);
-  if (i === -1) return null;
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let j = i; j < text.length; j++) {
-    const c = text[j];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (c === '\\\\') {
-      escaped = true;
-      continue;
-    }
-    if (c === '"') {
-      inString = !inString;
-      continue;
-    }
-    if (inString) continue;
-    if (c === '{') depth++;
-    else if (c === '}') {
-      depth--;
-      if (depth === 0) return text.slice(i, j + 1);
-    }
-  }
-  return null;
-}
-
 function repairJsonStrings(s: string): string {
   let result = '';
   let inString = false;
@@ -118,7 +88,7 @@ function repairJsonStrings(s: string): string {
       escaped = false;
       continue;
     }
-    if (c === '\\\\') {
+    if (c === '\\') {
       result += c;
       escaped = true;
       continue;
@@ -130,15 +100,15 @@ function repairJsonStrings(s: string): string {
     }
     if (inString) {
       if (c === '\n') {
-        result += '\\\\n';
+        result += '\\n';
         continue;
       }
       if (c === '\r') {
-        result += '\\\\r';
+        result += '\\r';
         continue;
       }
       if (c === '\t') {
-        result += '\\\\t';
+        result += '\\t';
         continue;
       }
     }
@@ -149,37 +119,223 @@ function repairJsonStrings(s: string): string {
 
 const KNOWN_TOOLS = new Set(['write_file', 'read_file', 'list_files', 'run_command']);
 
-/** Some weaker models emit tool calls as text instead of using the function-calling API. */
-function extractTextToolCall(text: string): ToolCall | null {
-  const nameMatch = text.match(/"name"\s*:\s*"([a-zA-Z_][a-zA-Z0-9_]*)"/);
-  if (!nameMatch) return null;
-  const name = nameMatch[1];
-  if (!KNOWN_TOOLS.has(name)) return null;
+function parseLooseJson(text: string): unknown {
+  const candidates = [
+    text,
+    repairJsonStrings(text),
+    text.replace(/,\s*([}\]])/g, '$1'),
+    repairJsonStrings(text).replace(/,\s*([}\]])/g, '$1'),
+  ];
+  for (const candidate of candidates) {
+    try {
+      return JSON.parse(candidate);
+    } catch {
+      // Try the next repair.
+    }
+  }
+  return undefined;
+}
 
-  // Find args under "parameters" or "arguments".
-  let args: Record<string, unknown> = {};
-  const keyMatch = text.match(/"(?:parameters|arguments)"\s*:/);
-  if (keyMatch && keyMatch.index !== undefined) {
-    const obj = extractBracedObject(text, keyMatch.index + keyMatch[0].length);
-    if (obj) {
-      try {
-        const parsed = JSON.parse(obj);
-        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-          args = parsed as Record<string, unknown>;
-        }
-      } catch {
-        try {
-          const parsed = JSON.parse(repairJsonStrings(obj));
-          if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-            args = parsed as Record<string, unknown>;
-          }
-        } catch {
-          // Give up on args; the tool will report the missing fields.
-        }
+function findMatchingParen(text: string, openIndex: number): number {
+  let depth = 0;
+  let inString = false;
+  let quote = '';
+  let escaped = false;
+  for (let i = openIndex; i < text.length; i++) {
+    const c = text[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (c === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (inString) {
+      if (c === quote) inString = false;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      inString = true;
+      quote = c;
+      continue;
+    }
+    if (c === '(') depth++;
+    else if (c === ')') {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function firstTopLevelArgument(inner: string): string {
+  let depth = 0;
+  let inString = false;
+  let quote = '';
+  let escaped = false;
+  for (let i = 0; i < inner.length; i++) {
+    const c = inner[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (c === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (inString) {
+      if (c === quote) inString = false;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      inString = true;
+      quote = c;
+      continue;
+    }
+    if (c === '{' || c === '[' || c === '(') depth++;
+    else if (c === '}' || c === ']' || c === ')') depth--;
+    else if (c === ',' && depth === 0) return inner.slice(0, i);
+  }
+  return inner;
+}
+
+/**
+ * Local models often write `"content": JSON.stringify({...}, null, 2)` inside a
+ * text tool call. That is JavaScript, not JSON. Turn each call into the JSON
+ * string it would have produced so the arguments parse.
+ */
+function replaceStringifyCalls(text: string): string {
+  const marker = 'JSON.stringify';
+  let out = '';
+  let index = 0;
+  while (true) {
+    const found = text.indexOf(marker, index);
+    if (found === -1) {
+      out += text.slice(index);
+      break;
+    }
+    out += text.slice(index, found);
+    let open = found + marker.length;
+    while (open < text.length && /\s/.test(text[open])) open++;
+    if (text[open] !== '(') {
+      out += marker;
+      index = found + marker.length;
+      continue;
+    }
+    const close = findMatchingParen(text, open);
+    if (close === -1) {
+      out += text.slice(found);
+      break;
+    }
+    const inner = text.slice(open + 1, close);
+    const first = firstTopLevelArgument(inner).trim();
+    const parsed = parseLooseJson(first);
+    if (parsed === undefined) {
+      out += text.slice(found, close + 1);
+    } else {
+      out += JSON.stringify(JSON.stringify(parsed));
+    }
+    index = close + 1;
+  }
+  return out;
+}
+
+/** Extract every top-level JSON object, ignoring braces inside strings. */
+function scanTopLevelObjects(text: string): string[] {
+  const objects: string[] = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (c === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (c === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (c === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (c === '}') {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        objects.push(text.slice(start, i + 1));
+        start = -1;
       }
     }
   }
-  return { id: `text_${Date.now()}`, name, arguments: args };
+  return objects;
+}
+
+interface CollectedTextCalls {
+  calls: ToolCall[];
+  failures: string[];
+}
+
+/** Some weaker models emit tool calls as text instead of using the function-calling API. */
+function collectTextToolCalls(text: string): CollectedTextCalls {
+  const calls: ToolCall[] = [];
+  const failures: string[] = [];
+  const seen = new Set<string>();
+  for (const objectText of scanTopLevelObjects(text)) {
+    const parsed = parseLooseJson(objectText);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      if (/["'](?:name|function|arguments|parameters)["']/.test(objectText)) {
+        failures.push(objectText);
+      }
+      continue;
+    }
+    const record = parsed as Record<string, unknown>;
+    const candidate =
+      record.function && typeof record.function === 'object' && !Array.isArray(record.function)
+        ? (record.function as Record<string, unknown>)
+        : record;
+    const name = typeof candidate.name === 'string' ? candidate.name : '';
+    if (!KNOWN_TOOLS.has(name)) continue;
+    let args = candidate.arguments ?? candidate.parameters ?? {};
+    if (typeof args === 'string') {
+      const inner = parseLooseJson(args);
+      if (inner && typeof inner === 'object' && !Array.isArray(inner)) args = inner;
+    }
+    if (!args || typeof args !== 'object' || Array.isArray(args)) args = {};
+    const key = `${name}:${JSON.stringify(args)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    calls.push({
+      id: `text_${Date.now()}_${calls.length}`,
+      name,
+      arguments: args as Record<string, unknown>,
+    });
+  }
+  return { calls, failures };
+}
+
+function extractTextToolCalls(text: string): ToolCall[] {
+  // Parse the text as-is first. Only repair failed objects with
+  // `JSON.stringify(...)`: the repair rewrites text and must not touch valid
+  // JSON content that happens to contain JSON.stringify inside a string.
+  const direct = collectTextToolCalls(text);
+  if (!direct.failures.length) return direct.calls;
+  const repaired = collectTextToolCalls(direct.failures.map(replaceStringifyCalls).join('\n'));
+  const merged = [...direct.calls];
+  const seen = new Set(merged.map((call) => `${call.name}:${JSON.stringify(call.arguments)}`));
+  for (const call of repaired.calls) {
+    const key = `${call.name}:${JSON.stringify(call.arguments)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(call);
+  }
+  return merged;
 }
 
 function schemaJson(schema: ZodType): string {
@@ -232,6 +388,7 @@ export class Agent {
     let jsonAttempts = 0;
     let steps = 0;
     const limit = options.maxSteps ?? this.settings.maxAgentSteps;
+    const debug = process.env.DEV_FIRM_DEBUG === '1';
 
     for (let step = 1; step <= limit; step += 1) {
       steps = step;
@@ -264,12 +421,37 @@ export class Agent {
       promptTokens += llmResponse.promptTokens;
       completionTokens += llmResponse.completionTokens;
 
+      if (debug) {
+        const names = llmResponse.toolCalls.map((call) => call.name).join(',') || 'none';
+        process.stderr.write(
+          `[${this.spec.name}] step ${step}/${limit} tools=${names} text=${llmResponse.text.length}\n`,
+        );
+      }
+
       // Some weaker local models emit tool calls as text instead of using the
       // function-calling API. Detect and recover those so the run can proceed.
       if (llmResponse.toolCalls.length === 0 && toolSchemas.length > 0) {
-        const extracted = extractTextToolCall(llmResponse.text);
-        if (extracted) {
-          llmResponse.toolCalls.push(extracted);
+        const extractedCalls = extractTextToolCalls(llmResponse.text);
+        if (extractedCalls.length) {
+          llmResponse.toolCalls.push(...extractedCalls);
+          if (debug) {
+            for (const extracted of extractedCalls) {
+              process.stderr.write(
+                `[${this.spec.name}] recovered text call ${extracted.name} ${JSON.stringify(
+                  extracted.arguments,
+                ).slice(0, 300)}\n`,
+              );
+            }
+            process.stderr.write(
+              `[${this.spec.name}] raw text ${llmResponse.text.slice(0, 1200).replace(/\n/g, '\\n')}\n`,
+            );
+          }
+        } else if (debug) {
+          process.stderr.write(
+            `[${this.spec.name}] no tool call; text ${llmResponse.text
+              .slice(0, 800)
+              .replace(/\n/g, '\\n')}\n`,
+          );
         }
       }
 
@@ -288,7 +470,17 @@ export class Agent {
           tool_calls: assistantCalls,
         });
         for (const call of llmResponse.toolCalls) {
+          if (debug) {
+            process.stderr.write(
+              `[${this.spec.name}] ${call.name} ${JSON.stringify(call.arguments).slice(0, 400)}\n`,
+            );
+          }
           const result = await this.tools.execute(call.name, call.arguments);
+          if (debug) {
+            process.stderr.write(
+              `[${this.spec.name}] -> ${String(result).slice(0, 300).replace(/\n/g, ' ')}\n`,
+            );
+          }
           messages.push({
             role: 'tool',
             tool_call_id: call.id,

@@ -60,8 +60,11 @@ directly from your file plan.
 
 RUNTIME
 - Target the current Node.js runtime (26.x).
-- Use current package majors: better-sqlite3 ^13, express ^5, ejs ^3, vitest ^3,
-  supertest ^7. Do not specify outdated versions that fail to install on Node 26.
+- Use the built-in node:sqlite module when the app needs SQLite. Do not plan
+  native addons such as better-sqlite3 or sqlite3.
+- Use current package majors: express ^5, ejs ^3, vitest ^3, supertest ^7.
+  Do not specify outdated versions that fail to install on Node 26.
+- The test command is "npm test" mapped to "vitest run" (not watch mode).
 - Every runtime dependency must be explicit; the workspace starts with no modules.
 
 BE CONCISE
@@ -94,14 +97,17 @@ const DEVELOPER_RULES = `RULES
 1. Implement the architecture's file plan. Create complete, runnable files; do
    not leave TODOs or placeholder logic unless the spec explicitly defers it.
 2. Use the write_file tool for every file. Write the full content each time.
-3. Read the existing workspace files before writing. Preserve working code.
+3. List the workspace once, then read only files you need to change. Do not
+   re-read files you just wrote and do not spend steps exploring.
 4. Add tests that match the QA plan, then run them with the run_command tool (for
    example "npm test"). Fix failures before finishing.
 5. Keep dependencies minimal and declare them. Every runtime import must appear in
    package.json dependencies; every test-only import in devDependencies.
-6. The workspace runs on Node.js 26. Use current package versions, for example
-   better-sqlite3 ^13, express ^5, ejs ^3, vitest ^3, and supertest ^7. Do not pin
-   old majors that fail to build on the current Node runtime.
+6. The workspace runs on Node.js 26. Use the built-in node:sqlite module for
+   persistence. Do NOT add native addons such as better-sqlite3, sqlite3, or
+   bcrypt. Use current package majors such as express ^5, ejs ^3, vitest ^3, and
+   supertest ^7. Do not pin old majors that fail to build on the current runtime.
+   Set package.json's test script to "vitest run" (never watch mode).
 7. Run "npm install" once after writing package.json. If install fails because of a
    dependency version, edit package.json and retry; never leave a broken manifest.
 8. Do not touch files outside the workspace. Do not install global packages.
@@ -111,8 +117,10 @@ const DEVELOPER_RULES = `RULES
    the other developer unless the task requires an integration change.
 11. If the tech lead or QA sent feedback, fix every blocking item and re-run the
    tests before finishing.
-12. Do not repeat the same failing command more than twice. If you are blocked,
-   stop using tools and return the JSON report with the failure in known_issues.
+12. Do not repeat the same failing command more than twice. If a tool call fails,
+   correct its arguments and try once more, but never repeat the same call
+   unchanged. If you are blocked, stop using tools and return the JSON report
+   with the failure in known_issues.
 13. Finish with the JSON report requested by the schema. Do not keep exploring
    after the files are written and the tests have run.
 `;

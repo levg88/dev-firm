@@ -946,7 +946,7 @@ export class BuildService {
       ).slice(0, 3000)}`,
     );
     for (const script of ['typecheck', 'build', 'test']) {
-      const result = await sandbox.runCommand({ command: `npm run ${script}`, timeout: 120000 });
+      const result = await sandbox.runCommand({ command: `npm run ${script}`, timeout: 300 });
       const ok = (result as Record<string, any>).ok === true;
       const detail = ok
         ? String((result as Record<string, any>).stdout ?? '')

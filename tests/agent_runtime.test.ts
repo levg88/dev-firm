@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 import * as db from '../src/db';
 import { Agent, ToolRegistry } from '../src/agents/base';
@@ -99,6 +102,71 @@ describe('agent runtime', () => {
     );
     expect(runs[0].role).toBe('tester');
     expect(runs[0].status).toBe('ok');
+  });
+
+  it('recovers a text-emitted tool call with braces and quotes in its arguments', async () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-firm-toolcall-'));
+    const fileContent = [
+      'export function check(x) {',
+      '  if (x) { return "}"; }',
+      '  return "C:\\\\tmp";',
+      '}',
+      '',
+    ].join('\n');
+    const call = {
+      name: 'write_file',
+      arguments: { path: 'recovered.txt', content: fileContent },
+    };
+    const llm = new ScriptedLLM([
+      response({ text: 'Here is the call:\n```json\n' + JSON.stringify(call) + '\n```' }),
+      response({ text: '{"ok": true}' }),
+    ]);
+
+    const result = await makeAgent(llm, makeTools(new Sandbox(workspace))).run('do it', {
+      schema: Answer,
+    });
+
+    expect(result.data).toEqual({ ok: true });
+    expect(fs.readFileSync(path.join(workspace, 'recovered.txt'), 'utf8')).toBe(fileContent);
+  });
+
+  it('recovers multiple text tool calls that use JSON.stringify for content', async () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-firm-toolcalls-'));
+    const text = [
+      '```json',
+      '{',
+      '  "name": "write_file",',
+      '  "arguments": {',
+      '    "path": "package.json",',
+      '    "content": JSON.stringify({',
+      '      "name": "app",',
+      '      "scripts": { "test": "vitest run" }',
+      '    }, null, 2)',
+      '  }',
+      '}',
+      '```',
+      '```json',
+      '{',
+      '  "name": "write_file",',
+      '  "arguments": { "path": "server.js", "content": "console.log(1)\\n" }',
+      '}',
+      '```',
+    ].join('\n');
+    const llm = new ScriptedLLM([
+      response({ text }),
+      response({ text: '{"ok": true}' }),
+    ]);
+
+    const result = await makeAgent(llm, makeTools(new Sandbox(workspace))).run('do it', {
+      schema: Answer,
+    });
+
+    expect(result.data).toEqual({ ok: true });
+    expect(JSON.parse(fs.readFileSync(path.join(workspace, 'package.json'), 'utf8'))).toEqual({
+      name: 'app',
+      scripts: { test: 'vitest run' },
+    });
+    expect(fs.readFileSync(path.join(workspace, 'server.js'), 'utf8')).toBe('console.log(1)\n');
   });
 
   it('parses JSON from common model shapes', () => {

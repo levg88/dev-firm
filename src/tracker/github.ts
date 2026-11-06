@@ -363,8 +363,30 @@ export class GitHubTracker extends LocalTracker {
     if (previous === next) return;
     this.roleLabels.set(ticket.key, next);
     await this._ensureLabel(next);
+    const stale = new Set<string>();
+    if (previous) stale.add(previous);
+    // A freshly started process has no cache; read the issue so role handoffs
+    // remove the old owner's label instead of stacking role:* labels.
+    try {
+      const raw = await this._gh([
+        'issue',
+        'view',
+        this._issueNumber(ticket),
+        '--repo',
+        this.repoSlug,
+        '--json',
+        'labels',
+      ]);
+      const current = (JSON.parse(raw).labels ?? []) as Array<{ name?: string }>;
+      for (const label of current) {
+        const name = label?.name ?? '';
+        if (name.startsWith('role:') && name !== next) stale.add(name);
+      }
+    } catch {
+      // Label cleanup is best-effort.
+    }
     const args = ['issue', 'edit', this._issueNumber(ticket), '--repo', this.repoSlug, '--add-label', next];
-    if (previous) args.push('--remove-label', previous);
+    for (const old of stale) args.push('--remove-label', old);
     try {
       await this._gh(args);
     } catch {

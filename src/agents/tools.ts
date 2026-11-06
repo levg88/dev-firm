@@ -44,7 +44,13 @@ export class Sandbox {
   writeFile(args: Record<string, unknown>): Record<string, unknown> {
     const target = this.resolve(args.path);
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    const content = String(args.content ?? '');
+    const raw = args.content;
+    const content =
+      typeof raw === 'string'
+        ? raw
+        : raw === undefined || raw === null
+          ? ''
+          : JSON.stringify(raw, null, 2);
     fs.writeFileSync(target, content, 'utf8');
     return { ok: true, path: path.relative(this.root, target), bytes: content.length };
   }
@@ -75,7 +81,8 @@ export class Sandbox {
 
   async runCommand(args: Record<string, unknown>): Promise<Record<string, unknown>> {
     const command = String(args.command ?? '');
-    const timeout = Number(args.timeout ?? 120) || 120;
+    const requested = Number(args.timeout ?? 120) || 120;
+    const timeout = Math.min(Math.max(requested, 1), 900);
     const argv = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? [];
     const executable = argv[0]?.split(/["']/).pop() ?? '';
     const allowed = new Set([
@@ -105,6 +112,8 @@ export class Sandbox {
         env: {
           PATH: '/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin',
           HOME: process.env.HOME ?? '',
+          CI: '1',
+          NO_COLOR: '1',
         },
       });
       const output = (stdout || '').slice(-30000);
@@ -168,7 +177,7 @@ export function makeTools(sandbox: Sandbox, options: { readOnly?: boolean } = {}
       'Run an allowed command in the workspace and return stdout/stderr. Use it to run tests or inspect the project.',
     parameters: {
       type: 'object',
-      properties: { command: { type: 'string' }, timeout: { type: 'integer', default: 120 } },
+      properties: { command: { type: 'string' }, timeout: { type: 'integer', default: 120, description: 'Timeout in seconds (max 900)' } },
       required: ['command'],
     },
     handler: (args) => sandbox.runCommand(args),
