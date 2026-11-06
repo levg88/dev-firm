@@ -2,7 +2,7 @@ import type { ZodType } from 'zod';
 import { toJSONSchema } from 'zod';
 
 import { Settings } from '../config';
-import { LLMClient, LLMError, LLMResponse, ToolCall, parseJsonObject, response } from '../llm/base';
+import { LLMClient, LLMError, LLMResponse, ToolCall, parseJsonObject, response, sleep } from '../llm/base';
 
 export class AgentError extends Error {
   constructor(message: string) {
@@ -235,12 +235,32 @@ export class Agent {
 
     for (let step = 1; step <= limit; step += 1) {
       steps = step;
-      const llmResponse = await this.llm.complete(messages, {
-        tools: toolSchemas.length ? toolSchemas : undefined,
-        temperature: this.spec.temperature ?? 0.2,
-        maxTokens: this.spec.maxTokens ?? null,
-        jsonMode: Boolean(options.schema && !toolSchemas.length),
-      });
+      let llmResponse: LLMResponse;
+      try {
+        llmResponse = await this.llm.complete(messages, {
+          tools: toolSchemas.length ? toolSchemas : undefined,
+          temperature: this.spec.temperature ?? 0.2,
+          maxTokens: this.spec.maxTokens ?? null,
+          jsonMode: Boolean(options.schema && !toolSchemas.length),
+        });
+      } catch (error) {
+        // Retry once on transient failures (e.g., token repeat limits, timeouts).
+        if (step < limit) {
+          await sleep(2000);
+          try {
+            llmResponse = await this.llm.complete(messages, {
+              tools: toolSchemas.length ? toolSchemas : undefined,
+              temperature: this.spec.temperature ?? 0.2,
+              maxTokens: Math.min(this.spec.maxTokens ?? 2048, 2048),
+              jsonMode: Boolean(options.schema && !toolSchemas.length),
+            });
+          } catch {
+            throw new AgentError(error instanceof Error ? error.message : String(error));
+          }
+        } else {
+          throw new AgentError(error instanceof Error ? error.message : String(error));
+        }
+      }
       promptTokens += llmResponse.promptTokens;
       completionTokens += llmResponse.completionTokens;
 
