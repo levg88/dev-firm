@@ -1,3 +1,8 @@
+/**
+ * Local SQLite-backed ticket tracker implementation.
+ *
+ * @module tracker/local
+ */
 import type { Settings } from '../config';
 import * as db from '../db';
 import type {
@@ -10,6 +15,7 @@ import type {
   Tracker,
 } from './types';
 
+/** Local SQLite-backed ticket tracker. */
 export class LocalTracker implements Tracker {
   readonly projectKey: string;
   readonly projectName: string;

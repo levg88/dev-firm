@@ -1,3 +1,9 @@
+/**
+ * @fileoverview Re-exports of build-related Zod schemas and TypeScript types
+ * from the shared models module, so agent code can import them from a single
+ * place.
+ */
+
 export {
   architectureSchema,
   bugSchema,

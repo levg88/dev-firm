@@ -1,3 +1,11 @@
+/**
+ * @fileoverview Sandbox tools for agent file and command access.
+ *
+ * {@link Sandbox} confines all file reads/writes and command execution to a
+ * workspace root (path traversal is rejected). {@link makeTools} exposes
+ * read_file/list_files/write_file/run_command to agents as a ToolRegistry.
+ */
+
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs';
@@ -7,6 +15,7 @@ import { Tool, ToolRegistry } from './base';
 
 const execAsync = promisify(exec);
 
+/** Error thrown for invalid sandbox operations (bad path, missing file, disallowed command). */
 export class SandboxError extends Error {
   constructor(message: string) {
     super(message);
@@ -14,8 +23,12 @@ export class SandboxError extends Error {
   }
 }
 
+/**
+ * Workspace-scoped file and command tools. All paths are resolved relative to
+ * `root` and traversal outside the root is rejected.
+ */
 export class Sandbox {
-  /** Workspace-scoped file and command tools. */
+  /** Absolute path of the workspace root. */
   root: string;
 
   constructor(root: string) {
@@ -23,6 +36,7 @@ export class Sandbox {
     fs.mkdirSync(this.root, { recursive: true });
   }
 
+  /** Resolve a workspace-relative path, rejecting traversal outside the root. */
   resolve(relative: unknown): string {
     const value = String(relative ?? '');
     if (!value) throw new SandboxError('A path is required');
@@ -33,6 +47,7 @@ export class Sandbox {
     return resolved;
   }
 
+  /** Read a UTF-8 file from the workspace (truncated to 200k chars). */
   readFile(args: Record<string, unknown>): string {
     const target = this.resolve(args.path);
     if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
@@ -41,6 +56,7 @@ export class Sandbox {
     return fs.readFileSync(target, 'utf8').slice(0, 200000);
   }
 
+  /** Write a UTF-8 file in the workspace, creating parent dirs as needed. */
   writeFile(args: Record<string, unknown>): Record<string, unknown> {
     const target = this.resolve(args.path);
     fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -55,6 +71,7 @@ export class Sandbox {
     return { ok: true, path: path.relative(this.root, target), bytes: content.length };
   }
 
+  /** Recursively list workspace files (max 300, skipping dotfiles). */
   listFiles(args: Record<string, unknown>): string[] {
     const base = this.resolve(args.path ?? '.');
     const files: string[] = [];
@@ -79,6 +96,7 @@ export class Sandbox {
     return files;
   }
 
+  /** Run an allow-listed command in the workspace and return stdout/stderr. */
   async runCommand(args: Record<string, unknown>): Promise<Record<string, unknown>> {
     const command = String(args.command ?? '');
     const requested = Number(args.timeout ?? 120) || 120;
@@ -138,6 +156,7 @@ function PathLike(value: string): string {
   return value;
 }
 
+/** Build a ToolRegistry for an agent over the given sandbox (read-only optional). */
 export function makeTools(sandbox: Sandbox, options: { readOnly?: boolean } = {}): ToolRegistry {
   const registry = new ToolRegistry();
   registry.add({

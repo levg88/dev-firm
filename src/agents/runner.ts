@@ -1,3 +1,12 @@
+/**
+ * @fileoverview Agent runner and audit logging.
+ *
+ * {@link runAgent} wraps an {@link Agent} invocation, persisting a complete
+ * audit record (start/end, input, output, token usage, status) to the database.
+ * {@link recordHeuristicRun} records a deterministic (non-LLM) fallback so the
+ * audit trail stays complete.
+ */
+
 import type { ZodType } from 'zod';
 
 import type { Settings } from '../config';

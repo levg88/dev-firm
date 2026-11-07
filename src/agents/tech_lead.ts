@@ -1,3 +1,11 @@
+/**
+ * @fileoverview Tech lead agent wrapper.
+ *
+ * Reviews delivered implementation (developer reports, files, tests) against the
+ * product spec and architecture, returning a pass/fail verdict with blocking
+ * issues.
+ */
+
 import { Settings } from '../config';
 import { LLMClient } from '../llm/base';
 import { Agent, AgentResult } from './base';
@@ -24,6 +32,7 @@ export interface TechLeadOptions {
   feedback?: string;
 }
 
+/** Tech lead role agent: code review before QA sign-off. */
 export class TechLead {
   readonly role = 'tech_lead';
 

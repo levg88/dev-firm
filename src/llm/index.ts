@@ -1,3 +1,9 @@
+/**
+ * Factory for building an {@link LLMClient} from {@link Settings}, including
+ * per-role model/base-URL overrides.
+ *
+ * @module llm/index
+ */
 import { Settings } from '../config';
 import { AnthropicClient } from './anthropic';
 import { LLMClient, LLMError } from './base';
@@ -11,6 +17,7 @@ export { OpenAICompatClient } from './openai-compat';
 export { AnthropicClient } from './anthropic';
 export { parseJsonObject } from './base';
 
+/** Build an LLM client using default settings. */
 export function buildLlm(settings: Settings): LLMClient {
   return buildLlmForRole(settings, undefined);
 }

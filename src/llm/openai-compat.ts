@@ -1,3 +1,9 @@
+/**
+ * OpenAI-compatible chat completions adapter (used for OpenAI, Ollama and
+ * OpenCode providers).
+ *
+ * @module llm/openai-compat
+ */
 import {
   CompleteOptions,
   LLMClient,
@@ -9,6 +15,7 @@ import {
   sleep,
 } from './base';
 
+/** OpenAI-compatible chat completions client. */
 export class OpenAICompatClient extends LLMClient {
   provider: string;
   model: string;

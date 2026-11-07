@@ -1,3 +1,8 @@
+/**
+ * Command-line interface for the dev firm.
+ *
+ * @module cli
+ */
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -8,11 +13,13 @@ import { buildLlm, MockClient } from './llm';
 import { applyStoredSettings } from './runtime';
 import { createTracker, GitHubTracker } from './tracker';
 
+/** ParsedArguments interface. */
 interface ParsedArguments {
   positionals: string[];
   options: Record<string, string | boolean>;
 }
 
+/** parseArguments function. */
 function parseArguments(args: string[]): ParsedArguments {
   const positionals: string[] = [];
   const options: Record<string, string | boolean> = {};
@@ -37,11 +44,13 @@ function parseArguments(args: string[]): ParsedArguments {
   return { positionals, options };
 }
 
+/** optionString function. */
 function optionString(options: Record<string, string | boolean>, key: string): string {
   const value = options[key];
   return typeof value === 'string' ? value : '';
 }
 
+/** optionBool function. */
 function optionBool(options: Record<string, string | boolean>, key: string): boolean {
   return options[key] !== undefined && options[key] !== false && options[key] !== 'false';
 }
@@ -56,11 +65,13 @@ async function cmdInit(settings: Settings): Promise<number> {
   return 0;
 }
 
+/** cmdConfig function. */
 function cmdConfig(settings: Settings): number {
   console.log(JSON.stringify(settings.publicDict(), null, 2));
   return 0;
 }
 
+/** cmdDoctor function. */
 function cmdDoctor(settings: Settings): number {
   db.initDb(settings.dbPath);
   const llm = buildLlm(settings);
@@ -133,6 +144,7 @@ async function cmdServe(settings: Settings, options: Record<string, string | boo
   return 0;
 }
 
+/** cmdAgents function. */
 function cmdAgents(options: Record<string, string | boolean>): number {
   const roles: Record<string, [string, string]> = {
     product_manager: ['Product Manager', 'You are a senior product manager.'],
@@ -241,6 +253,7 @@ async function cmdGithub(
   throw new Error(`Unknown github subcommand "${subcommand}". Use: github status | github init | github sync`);
 }
 
+/** HELP constant. */
 export const HELP = `usage: dev-firm [--home HOME] <command> ...
 
 Agent-run development firm: brief → spec → design → code → review → QA, tracked in tickets.

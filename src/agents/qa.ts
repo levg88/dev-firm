@@ -1,3 +1,11 @@
+/**
+ * @fileoverview QA agent wrapper.
+ *
+ * Builds the verification task prompt (spec, architecture, tickets, file list)
+ * and runs QA with read-only sandbox tools so it can inspect and test the build
+ * without modifying it.
+ */
+
 import { Settings } from '../config';
 import { LLMClient } from '../llm/base';
 import { Agent, AgentResult } from './base';
@@ -19,6 +27,7 @@ export interface QAOptions {
   feedback?: string;
 }
 
+/** QA role agent: verifies the implementation against spec and runs tests. */
 export class QA {
   readonly role = 'qa';
 

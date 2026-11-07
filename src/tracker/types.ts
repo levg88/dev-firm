@@ -1,7 +1,14 @@
+/**
+ * Type definitions for the ticket tracker abstraction (local + GitHub).
+ *
+ * @module tracker/types
+ */
 import type { AgentRole, TaskArea, DeveloperRole } from '../models';
 
+/** TicketType type. */
 export type TicketType = 'epic' | 'story' | 'task' | 'bug';
 
+/** TicketStatus type. */
 export type TicketStatus =
   | 'todo'
   | 'design'
@@ -12,6 +19,7 @@ export type TicketStatus =
   | 'done'
   | 'blocked';
 
+/** Ticket interface. */
 export interface Ticket {
   id: number;
   key: string;
@@ -34,6 +42,7 @@ export interface Ticket {
   updated_at: string;
 }
 
+/** TicketEvent interface. */
 export interface TicketEvent {
   id: number;
   ticket_key: string;
@@ -43,6 +52,7 @@ export interface TicketEvent {
   created_at: string;
 }
 
+/** CreateTicketInput interface. */
 export interface CreateTicketInput {
   type: TicketType;
   title: string;
@@ -54,6 +64,7 @@ export interface CreateTicketInput {
   labels?: string[];
 }
 
+/** CreateBugInput interface. */
 export interface CreateBugInput {
   title: string;
   description: string;
@@ -65,6 +76,7 @@ export interface CreateBugInput {
   labels?: string[];
 }
 
+/** TicketPatch interface. */
 export interface TicketPatch {
   status?: TicketStatus;
   assignee?: string;
@@ -76,6 +88,7 @@ export interface TicketPatch {
   externalUrl?: string | null;
 }
 
+/** Tracker interface. */
 export interface Tracker {
   readonly projectKey: string;
   readonly projectName: string;
@@ -99,6 +112,7 @@ export interface Tracker {
   close(key: string, evidence: string): Promise<Ticket | null>;
 }
 
+/** TicketPlanItem interface. */
 export interface TicketPlanItem {
   key: string;
   title: string;

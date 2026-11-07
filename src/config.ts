@@ -1,8 +1,16 @@
+/**
+ * Application settings: environment loading, persistence helpers, and the
+ * {@link Settings} class.
+ *
+ * @module config
+ */
 import fs from 'node:fs';
 import path from 'node:path';
 
+/** OPENCODE_BASE_URL constant. */
 export const OPENCODE_BASE_URL = 'https://opencode.ai/inference/openai/v1';
 
+/** OPENCODE_FREE_MODELS constant. */
 export const OPENCODE_FREE_MODELS = [
   'deepseek-v4.1-flash-free',
   'glm-5.3-flash-free',
@@ -14,13 +22,17 @@ export const OPENCODE_FREE_MODELS = [
   'pulse-alpha-free',
 ];
 
+/** PROVIDERS constant. */
 const PROVIDERS = ['openai', 'anthropic', 'ollama', 'opencode', 'mock'] as const;
+/** Provider type. */
 export type Provider = (typeof PROVIDERS)[number];
 
+/** Type guard for supported LLM providers. */
 export function isProvider(value: string): value is Provider {
   return (PROVIDERS as readonly string[]).includes(value);
 }
 
+/** Load a .env file into process.env without overriding existing values. */
 export function loadDotenv(file: string): void {
   if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return;
   for (const raw of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
@@ -39,22 +51,26 @@ export function loadDotenv(file: string): void {
   }
 }
 
+/** Parse a boolean environment variable with a fallback. */
 function envBool(name: string, fallback: boolean): boolean {
   const value = process.env[name];
   if (value === undefined) return fallback;
   return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
 }
 
+/** Parse a float environment variable with a fallback. */
 function envFloat(name: string, fallback: number): number {
   const value = Number.parseFloat(process.env[name] ?? '');
   return Number.isFinite(value) ? value : fallback;
 }
 
+/** Parse an integer environment variable with a fallback. */
 function envInt(name: string, fallback: number): number {
   const value = Number.parseInt(process.env[name] ?? '', 10);
   return Number.isFinite(value) ? value : fallback;
 }
 
+/** Pick a provider from explicit env or available API keys. */
 function defaultProvider(): Provider {
   const explicit = process.env.DEV_FIRM_PROVIDER;
   if (explicit) {
@@ -68,6 +84,7 @@ function defaultProvider(): Provider {
   return 'mock';
 }
 
+/** Default model name for a provider. */
 export function defaultModelFor(provider: string): string {
   const models: Record<string, string> = {
     openai: 'gpt-4.1',
@@ -79,6 +96,7 @@ export function defaultModelFor(provider: string): string {
   return models[provider] ?? 'gpt-4.1';
 }
 
+/** Default base URL for a provider. */
 export function defaultBaseUrlFor(provider: string): string {
   const urls: Record<string, string> = {
     openai: 'https://api.openai.com/v1',
@@ -89,14 +107,20 @@ export function defaultBaseUrlFor(provider: string): string {
   return urls[provider] ?? '';
 }
 
+/** Resolve the model for a provider, honoring DEV_FIRM_MODEL. */
 function defaultModel(provider: Provider): string {
   return process.env.DEV_FIRM_MODEL || defaultModelFor(provider);
 }
 
+/** Trim and strip trailing slashes from a URL. */
 function cleanUrl(value: string): string {
   return value.trim().replace(/\/+$/, '');
 }
 
+/**
+ * Application configuration: paths, provider/model selection, GitHub sync, and
+ * per-role overrides. Loaded from environment + persisted DB settings.
+ */
 export class Settings {
   home: string;
   dataDir: string;

@@ -1,3 +1,11 @@
+/**
+ * @fileoverview Team lead agent wrapper.
+ *
+ * Reviews the architect's design and routes every task to a developer; also
+ * triages QA-opened bugs and routes them. Both flows return structured
+ * design-review / bug-triage JSON.
+ */
+
 import { Settings } from '../config';
 import { LLMClient } from '../llm/base';
 import { Agent, AgentResult } from './base';
@@ -19,6 +27,7 @@ export interface TicketTask {
   task: TaskSpec;
 }
 
+/** Team lead role agent: design review and bug triage routing. */
 export class TeamLead {
   readonly role = 'team_lead';
 

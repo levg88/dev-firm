@@ -1,3 +1,8 @@
+/**
+ * Offline mock LLM client used for demos and tests.
+ *
+ * @module llm/mock
+ */
 import { CompleteOptions, LLMClient, LLMResponse, contentAsText, response } from './base';
 
 /** Offline provider used for demos and tests. */

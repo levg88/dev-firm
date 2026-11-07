@@ -1,3 +1,11 @@
+/**
+ * @fileoverview Build status reporter.
+ *
+ * {@link BuildStatusReporter} periodically posts a tech-lead status update
+ * (phase, tickets/owners, ETA) as a comment and artifact, without ever
+ * throwing into the build.
+ */
+
 import type { Ticket, Tracker } from '../tracker';
 
 export type StatusArtifactWriter = (name: string, content: string) => void;

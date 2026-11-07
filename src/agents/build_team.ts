@@ -1,3 +1,12 @@
+/**
+ * @fileoverview Factory assembling the full "build firm" agent team.
+ *
+ * {@link BuildAgents} instantiates one agent per role (product manager,
+ * architect, team lead, two backend developers, two frontend developers, QA,
+ * tech lead, DevOps) with the LLM client configured for that role, and exposes
+ * typed convenience methods used by the build orchestrator.
+ */
+
 import { Settings } from '../config';
 import { buildLlmForRole } from '../llm';
 import { Architect } from './architect';
@@ -9,7 +18,14 @@ import { Sandbox } from './tools';
 import { TeamLead } from './team_lead';
 import { TechLead } from './tech_lead';
 
+/**
+ * Container holding one instantiated agent per role of the build firm.
+ *
+ * Constructed once per build run from a {@link Settings} object; each role gets
+ * its own LLM client (possibly different models) via `buildLlmForRole`.
+ */
 export class BuildAgents {
+  /** Product manager agent instance. */
   private readonly _pm: ProductManager;
   private readonly _architect: Architect;
   private readonly _team_lead: TeamLead;
@@ -22,6 +38,7 @@ export class BuildAgents {
   private readonly _devops: DevOps;
 
   constructor(private readonly settings: Settings) {
+    // Build a separate LLM client per role so models can be tuned per agent.
     const llmPm = buildLlmForRole(settings, 'product_manager');
     const llmArchitect = buildLlmForRole(settings, 'architect');
     const llmTeamLead = buildLlmForRole(settings, 'team_lead');

@@ -1,3 +1,8 @@
+/**
+ * Express application: routes and web UI endpoints for the dev firm.
+ *
+ * @module api/app
+ */
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -9,6 +14,7 @@ import { buildLlm, MockClient } from '../llm';
 import { BuildService } from '../orchestrator/build';
 import { applyStoredSettings } from '../runtime';
 
+/** PROVIDERS constant. */
 const PROVIDERS: Array<[string, string]> = [
   ['openai', 'OpenAI / OpenAI-compatible'],
   ['anthropic', 'Anthropic'],
@@ -17,6 +23,7 @@ const PROVIDERS: Array<[string, string]> = [
   ['mock', 'Offline mode (no key)'],
 ];
 
+/** llmNote function. */
 function llmNote(settings: Settings): string {
   const llm = buildLlm(settings);
   if (llm instanceof MockClient) {
@@ -30,16 +37,19 @@ function llmNote(settings: Settings): string {
   return '';
 }
 
+/** bodyString function. */
 function bodyString(req: Request, key: string): string {
   const value = (req.body ?? {})[key];
   if (Array.isArray(value)) return String(value[value.length - 1] ?? '');
   return value === undefined || value === null ? '' : String(value);
 }
 
+/** bodyBool function. */
 function bodyBool(req: Request, key: string): boolean {
   return ['1', 'true', 'yes', 'on'].includes(bodyString(req, key).trim().toLowerCase());
 }
 
+/** currentBaseUrl function. */
 function currentBaseUrl(settings: Settings): string {
   return settings.activeBaseUrl;
 }
@@ -57,6 +67,7 @@ async function runBuild(
   }
 }
 
+/** Create and configure the Express app. */
 export function createApp(initialSettings?: Settings): express.Express {
   const settings = initialSettings ?? Settings.load();
   settings.ensureDirs();
@@ -86,10 +97,12 @@ export function createApp(initialSettings?: Settings): express.Express {
     next();
   });
 
+  /** stats function. */
   function stats() {
     return db.withSession(settings.dbPath, (conn) => db.stats(conn));
   }
 
+  /** page function. */
   function page(
     res: Response,
     name: string,
@@ -107,6 +120,7 @@ export function createApp(initialSettings?: Settings): express.Express {
     });
   }
 
+  /** setupPage function. */
   function setupPage(
     res: Response,
     options: { editing: boolean; error?: string; message?: string; statusCode?: number },

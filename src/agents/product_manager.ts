@@ -1,3 +1,10 @@
+/**
+ * @fileoverview Product manager agent wrapper.
+ *
+ * Turns a rough product brief into a build-ready product specification
+ * (markdown + tasks + acceptance criteria) validated against `productSpecSchema`.
+ */
+
 import { Settings } from '../config';
 import { LLMClient } from '../llm/base';
 import { Agent, AgentResult } from './base';
@@ -5,6 +12,7 @@ import { ProductSpec, productSpecSchema } from './build_schemas';
 import { PM } from './prompts';
 import { runAgent } from './runner';
 
+/** Product manager role agent: produces the product spec from a brief. */
 export class ProductManager {
   readonly role = 'product_manager';
 

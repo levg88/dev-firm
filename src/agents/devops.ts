@@ -1,3 +1,10 @@
+/**
+ * @fileoverview DevOps agent wrapper.
+ *
+ * Builds the task prompt for the DevOps engineer (CI/CD, GitOps, deployment)
+ * and runs it with sandbox tools, gated on QA having passed.
+ */
+
 import { Settings } from '../config';
 import { LLMClient } from '../llm/base';
 import { Agent, AgentResult } from './base';
@@ -27,6 +34,7 @@ export interface DevOpsRunOptions {
   qaReport?: Record<string, any>;
 }
 
+/** DevOps role agent: manages pipeline and deployment of verified builds. */
 export class DevOps {
   readonly role: DevOpsRole;
   readonly name: string;

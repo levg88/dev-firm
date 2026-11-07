@@ -1,3 +1,17 @@
+/**
+ * @fileoverview Provider-agnostic tool-calling agent runtime.
+ *
+ * This module is the heart of the firm's agent layer. It defines the `Agent`
+ * class that drives a multi-step LLM conversation, dispatches tool calls to a
+ * `ToolRegistry`, recovers tool calls that weaker local models emit as plain
+ * text, repairs malformed JSON arguments, and (optionally) coerces the final
+ * answer into a validated JSON object matching a Zod schema.
+ *
+ * It also contains the text-tool-call recovery helpers (`extractTextToolCalls`,
+ * `repairJsonStrings`, etc.) used to keep small/local models productive even
+ * when they do not use the function-calling API.
+ */
+
 import type { ZodType } from 'zod';
 import { toJSONSchema } from 'zod';
 
@@ -14,6 +28,10 @@ import {
 } from '../llm/base';
 import { saveAgentStep, listAgentSteps } from '../db';
 
+/**
+ * Error thrown when an agent run fails unrecoverably (LLM error, invalid JSON
+ * after retries, or exceeding the step limit).
+ */
 export class AgentError extends Error {
   constructor(message: string) {
     super(message);
@@ -21,6 +39,11 @@ export class AgentError extends Error {
   }
 }
 
+/**
+ * A single tool exposed to an agent. The `parameters` field is a JSON Schema
+ * describing the tool's arguments; `handler` performs the work and returns a
+ * value that is serialized back to the model.
+ */
 export interface Tool {
   name: string;
   description: string;
@@ -28,6 +51,9 @@ export interface Tool {
   handler: (args: Record<string, any>) => unknown;
 }
 
+/**
+ * Wrap a {@link Tool} in the OpenAI-style function schema the LLM API expects.
+ */
 export function toolSchema(tool: Tool): Record<string, unknown> {
   return {
     type: 'function',
@@ -39,6 +65,11 @@ export function toolSchema(tool: Tool): Record<string, unknown> {
   };
 }
 
+/**
+ * Registry of tools available to an agent. Holds the tool definitions, exposes
+ * their JSON schemas to the LLM, and dispatches calls by name with argument
+ * validation and error handling.
+ */
 export class ToolRegistry {
   private tools = new Map<string, Tool>();
 
@@ -70,6 +101,10 @@ export class ToolRegistry {
   }
 }
 
+/**
+ * Static description of an agent role: its identity, system prompt, and
+ * sampling parameters. One `AgentSpec` is created per agent instance.
+ */
 export interface AgentSpec {
   name: string;
   role: string;
@@ -78,6 +113,10 @@ export interface AgentSpec {
   maxTokens?: number | null;
 }
 
+/**
+ * Result of a completed agent run: the final text, any parsed JSON payload,
+ * step count, token usage, and the last raw LLM response.
+ */
 export interface AgentResult {
   text: string;
   data: Record<string, any> | null;
@@ -87,6 +126,11 @@ export interface AgentResult {
   response: LLMResponse | null;
 }
 
+/**
+ * Escape raw newlines, carriage returns and tabs that appear *inside* JSON
+ * string literals so the value becomes valid JSON. Models often emit pretty
+ * multi-line strings without escaping them.
+ */
 function repairJsonStrings(s: string): string {
   let result = '';
   let inString = false;
@@ -129,6 +173,10 @@ function repairJsonStrings(s: string): string {
 
 const KNOWN_TOOLS = new Set(['write_file', 'read_file', 'list_files', 'run_command']);
 
+/**
+ * Try several increasingly lenient repairs to parse `text` as JSON. Returns
+ * `undefined` if every attempt fails.
+ */
 function parseLooseJson(text: string): unknown {
   const candidates = [
     text,
@@ -146,6 +194,10 @@ function parseLooseJson(text: string): unknown {
   return undefined;
 }
 
+/**
+ * Find the index of the closing parenthesis matching the one at `openIndex`,
+ * accounting for strings and nesting. Returns -1 if no match exists.
+ */
 function findMatchingParen(text: string, openIndex: number): number {
   let depth = 0;
   let inString = false;
@@ -179,6 +231,10 @@ function findMatchingParen(text: string, openIndex: number): number {
   return -1;
 }
 
+/**
+ * Return the first top-level argument of a comma-separated argument list,
+ * respecting string literals and nested braces/brackets/parens.
+ */
 function firstTopLevelArgument(inner: string): string {
   let depth = 0;
   let inString = false;
@@ -318,7 +374,7 @@ function replaceTemplateLiterals(text: string): string {
   return out;
 }
 
-/** Extract every top-level JSON object, ignoring braces inside strings. */
+/** Extract every top-level JSON object from `text`, ignoring braces inside strings. */
 function scanTopLevelObjects(text: string): string[] {
   const objects: string[] = [];
   let depth = 0;
@@ -423,6 +479,10 @@ function extractTextToolCalls(text: string): ToolCall[] {
   return merged;
 }
 
+/**
+ * Render a Zod schema as a pretty-printed JSON Schema string for inclusion in
+ * the system prompt. Falls back to `{}` if conversion fails.
+ */
 function schemaJson(schema: ZodType): string {
   try {
     return JSON.stringify(toJSONSchema(schema, { io: 'input' }), null, 2);
@@ -431,7 +491,15 @@ function schemaJson(schema: ZodType): string {
   }
 }
 
-/** A small provider-agnostic tool-calling agent. */
+/**
+ * A small provider-agnostic tool-calling agent.
+ *
+ * Drives a multi-turn conversation with an LLM: sends the system/user
+ * messages, executes any tool calls the model requests through the registry,
+ * feeds results back, and repeats until the model produces a final answer or
+ * the step limit is reached. Optionally validates the final answer against a
+ * Zod schema with a couple of retry nudges.
+ */
 export class Agent {
   spec: AgentSpec;
   llm: LLMClient;
@@ -445,6 +513,18 @@ export class Agent {
     this.tools = tools ?? new ToolRegistry();
   }
 
+  /**
+   * Run the agent on `task`.
+   *
+   * @param task - The user-facing instruction for this run.
+   * @param options.context - Extra context appended to the user message.
+   * @param options.schema - When set, the final answer must be valid JSON
+   *   conforming to this Zod schema; the agent retries up to 2 times.
+   * @param options.maxSteps - Override the configured step limit.
+   * @param options.agentRunId - DB id for persisting per-step audit rows.
+   * @returns The final text, parsed data (if a schema was given), step count,
+   *   token usage, and the last LLM response.
+   */
   async run(
     task: string,
     options: { context?: string; schema?: ZodType; maxSteps?: number; agentRunId?: number } = {},
@@ -509,6 +589,8 @@ export class Agent {
       }
     };
 
+    // Main tool-calling loop: one LLM round-trip per step, executing any tool
+    // calls the model requests and feeding results back into the conversation.
     for (let step = 1; step <= limit; step += 1) {
       steps = step;
       let llmResponse: LLMResponse;

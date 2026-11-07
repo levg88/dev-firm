@@ -1,3 +1,8 @@
+/**
+ * GitHub Issues + Projects v2 tracker, mirroring the local ticket board.
+ *
+ * @module tracker/github
+ */
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
@@ -14,6 +19,7 @@ import { LocalTracker } from './local';
 
 const execFileAsync = promisify(execFile);
 
+/** GitHubProject interface. */
 interface GitHubProject {
   number: number;
   title: string;

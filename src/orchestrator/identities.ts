@@ -1,3 +1,10 @@
+/**
+ * @fileoverview Git identities and helpers for the workspace commit trail.
+ *
+ * Maps each agent role to a local git author identity and provides
+ * `ensureGitRepo` / `commitAs` to record a per-role commit history.
+ */
+
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';

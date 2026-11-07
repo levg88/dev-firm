@@ -1,3 +1,11 @@
+/**
+ * @fileoverview Developer agent wrapper.
+ *
+ * Builds the task prompt for a backend or frontend developer (spec,
+ * architecture, file plan, runtime constraints, assigned tickets, feedback) and
+ * runs it through the agent runtime with sandbox file/command tools.
+ */
+
 import { Settings } from '../config';
 import { LLMClient } from '../llm/base';
 import { Agent, AgentResult } from './base';
@@ -25,6 +33,7 @@ export interface DeveloperRunOptions {
   tickets?: DeveloperTicket[];
 }
 
+/** Developer role agent: implements assigned tasks in the sandboxed workspace. */
 export class Developer {
   readonly role: DeveloperRole;
   readonly name: string;

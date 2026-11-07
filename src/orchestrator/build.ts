@@ -1,3 +1,13 @@
+/**
+ * @fileoverview End-to-end build pipeline orchestration.
+ *
+ * {@link BuildService} drives a full software build from a product brief: product
+ * management, architecture, team-lead design review, parallel developer
+ * implementation, tech-lead code review, QA verification, and DevOps deployment,
+ * with iterative bug-fix loops. It persists every artifact, ticket, and agent
+ * run to the local database and tracks progress via a status reporter.
+ */
+
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -88,7 +98,14 @@ const EMPTY_TRIAGE: BugTriage = bugTriageSchema.parse({
   issues: [],
 });
 
+/**
+ * Orchestrates a complete build run from brief to deployed application.
+ *
+ * Holds the shared settings, LLM client, and agent team, and exposes `run`/
+ * `execute` to start or resume a build workflow.
+ */
 export class BuildService {
+  /** Shared settings (paths, limits, provider config). */
   readonly settings: Settings;
   readonly llm: LLMClient;
   readonly agents: BuildAgents;
@@ -107,6 +124,11 @@ export class BuildService {
     return this.execute(workflowId, brief, repoPath);
   }
 
+  /**
+   * Execute (or resume) a build workflow by id. Sets up the workspace and git
+   * repo, dispatches to the mock or real pipeline, and persists the final
+   * status/output. Cleans up the status reporter on exit.
+   */
   async execute(workflowId: number, brief: string, repoPath?: string): Promise<BuildResult> {
     const workflow = db.withSession(this.settings.dbPath, (conn) =>
       db.getWorkflow(conn, workflowId),
@@ -168,6 +190,13 @@ export class BuildService {
     }
   }
 
+  /**
+   * Run the full real (LLM-driven) build pipeline.
+   *
+   * Phases: (0) validate target project, (1) product manager + task breakdown,
+   * (2) architect + team-lead design review, (3) delivery loop of
+   * dev -> tech lead -> QA with bug-fix iterations, and finally DevOps deploy.
+   */
   private async _realBuild(
     workflowId: number,
     workspace: string,
@@ -349,6 +378,8 @@ export class BuildService {
     let lastQa: QAReport | null = null;
     let lastDeploy: DevOpsReport | null = null;
 
+    // Delivery loop: developers implement, tech lead reviews, QA verifies.
+    // On QA failure, bugs are opened and a new iteration begins.
     while (iteration < maxIterations && !passed) {
       iteration += 1;
       const groups = new Map<DeveloperRole, WorkItem[]>();
@@ -784,6 +815,11 @@ export class BuildService {
     };
   }
 
+  /**
+   * Offline mock build used when no model provider is configured. Produces
+   * placeholder artifacts and a passing QA report so the pipeline can be
+   * exercised end-to-end without an LLM.
+   */
   private async _mockBuild(
     workflowId: number,
     workspace: string,
@@ -901,6 +937,7 @@ export class BuildService {
     };
   }
 
+  /** Create a single fallback bug ticket when QA reports failure without structured bugs. */
   private async _createFallbackBug(
     tracker: Tracker,
     qa: QAReport,
@@ -932,6 +969,7 @@ export class BuildService {
     };
   }
 
+  /** Derive the initial task list from the product spec, falling back to a generated backend/frontend split. */
   private _planTasks(spec: ProductSpec, brief: string): TaskSpec[] {
     const provided = (spec.tasks ?? []).filter((task) => task.title.trim());
     if (provided.length) return provided;
@@ -977,10 +1015,12 @@ export class BuildService {
     ].join('\n');
   }
 
+  /** Map a task area to a developer role (frontend areas go to the frontend developer). */
   private _roleForArea(area: string): DeveloperRole {
     return area === 'frontend' ? 'frontend_developer' : 'backend_developer';
   }
 
+  /** Pick the developer role for a work item from a design review or bug triage assignment. */
   private _assignmentFor(
     review: DesignReview | BugTriage | null,
     item: WorkItem,
@@ -1004,6 +1044,7 @@ export class BuildService {
     return this._roleForArea(item.task.area);
   }
 
+  /** Convert QA's reported bugs (or issues) into WorkItems linked to the relevant task. */
   private _bugsFromQa(
     qa: QAReport,
     active: WorkItem[],
@@ -1054,6 +1095,7 @@ export class BuildService {
     return parts.join('\n');
   }
 
+  /** Run npm install in the workspace and record the result as an artifact. */
   private async _installDependencies(
     workflowId: number,
     workspace: string,
@@ -1084,6 +1126,7 @@ export class BuildService {
     return { ok, error: ok ? undefined : detail.slice(-2000) || 'npm install failed' };
   }
 
+  /** Validate an existing target project (npm install/typecheck/build/test) and return a markdown report. */
   private async _validate(workflowId: number, workspace: string, sandbox: Sandbox): Promise<string> {
     const pkgPath = path.join(workspace, 'package.json');
     if (!fs.existsSync(pkgPath)) {

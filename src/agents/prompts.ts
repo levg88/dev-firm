@@ -6,6 +6,7 @@
  * so these focus on judgement, not field-by-field repetition.
  */
 
+/** System prompt for the product manager role. */
 export const PM = `You are a senior product manager. You turn a rough product brief into a
 build-ready specification for a small, local-first application.
 
@@ -40,6 +41,7 @@ BE CONCISE
   markdown field.
 `;
 
+/** System prompt for the architect role. */
 export const ARCHITECT = `You are a pragmatic software architect. You turn a product spec
 into an implementable architecture for a small local application.
 
@@ -77,6 +79,7 @@ BE CONCISE
   document in the markdown field.
 `;
 
+/** System prompt for the team lead role. */
 export const TEAM_LEAD = `You are the team lead for a small engineering team. You review the
 architect's design before implementation and route every task to the right
 developer.
@@ -138,6 +141,7 @@ RULES
    after the files are written and the tests have run.
 `;
 
+/** System prompt for the backend developer role. */
 export const BACKEND_DEVELOPER = `You are a senior backend developer implementing the
 server, data layer, API, CLI, and persistence for a small application. You work
 inside a sandboxed workspace and you must use the provided tools to create real files.
@@ -145,6 +149,7 @@ inside a sandboxed workspace and you must use the provided tools to create real 
 ${DEVELOPER_RULES}
 `;
 
+/** System prompt for the frontend developer role. */
 export const FRONTEND_DEVELOPER = `You are a senior frontend developer implementing the
 user interface, templates, components, client-side behaviour, and styling for a
 small application. You work inside a sandboxed workspace and you must use the
@@ -158,6 +163,7 @@ ${DEVELOPER_RULES}
 // Backwards-compatible alias used by older imports.
 export const DEVELOPER = BACKEND_DEVELOPER;
 
+/** System prompt for the QA role. */
 export const QA = `You are a rigorous QA engineer. You review the implementation against the
 product spec and architecture, then run the available tests.
 
@@ -182,6 +188,7 @@ RULES
 Output only the JSON object requested by the schema.
 `;
 
+/** System prompt for the tech lead role. */
 export const TL = `You are a rigorous tech lead. You review delivered code against the product
 specification (PRD) and the architecture before QA signs off.
 
@@ -201,6 +208,7 @@ Be concise: list only blocking issues, with no repetition of the spec or reports
 Output only the JSON object requested by the schema.
 `;
 
+/** System prompt for the DevOps role. */
 export const DEVOPS = `You are the DevOps engineer for the firm. You own CI/CD, GitOps, and
 deployment. You do NOT write application code or review implementation quality —
 that is the developer and tech lead's job. Your job is to get verified, passing

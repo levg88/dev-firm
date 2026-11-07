@@ -1,3 +1,9 @@
+/**
+ * Base LLM client abstractions: the {@link LLMClient} interface, shared
+ * response/error types, and helpers for parsing JSON out of model output.
+ *
+ * @module llm/base
+ */
 export class LLMError extends Error {
   constructor(message: string) {
     super(message);
@@ -5,12 +11,14 @@ export class LLMError extends Error {
   }
 }
 
+/** A single tool invocation requested by the model. */
 export interface ToolCall {
   id: string;
   name: string;
   arguments: Record<string, unknown>;
 }
 
+/** Normalised response returned by every LLMClient. */
 export interface LLMResponse {
   text: string;
   toolCalls: ToolCall[];
@@ -19,6 +27,7 @@ export interface LLMResponse {
   raw: Record<string, unknown>;
 }
 
+/** Options for a completion request. */
 export interface CompleteOptions {
   tools?: Record<string, unknown>[];
   temperature?: number | null;
@@ -26,12 +35,14 @@ export interface CompleteOptions {
   jsonMode?: boolean;
 }
 
+/** Abstract LLM client interface. */
 export abstract class LLMClient {
   abstract provider: string;
   abstract model: string;
   abstract complete(messages: Record<string, any>[], options?: CompleteOptions): Promise<LLMResponse>;
 }
 
+/** Build an LLMResponse with defaults. */
 export function response(values: Partial<LLMResponse> = {}): LLMResponse {
   return {
     text: values.text ?? '',
@@ -42,8 +53,10 @@ export function response(values: Partial<LLMResponse> = {}): LLMResponse {
   };
 }
 
+/** FENCE_RE constant. */
 const FENCE_RE = /^\s*```(?:json|JSON)?\s*|\s*```\s*$/gm;
 
+/** Extract and parse a JSON object from model text. */
 export function parseJsonObject(text: string): Record<string, any> {
   if (!text || !text.trim()) {
     throw new LLMError('The model returned an empty response where JSON was required.');
@@ -81,6 +94,7 @@ export function parseJsonObject(text: string): Record<string, any> {
   throw new LLMError(`Could not parse JSON from model response: ${snippet}`);
 }
 
+/** Coerce message content into text. */
 export function contentAsText(content: unknown): string {
   if (content === null || content === undefined) return '';
   if (typeof content === 'string') return content;

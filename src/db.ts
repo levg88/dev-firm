@@ -1,8 +1,14 @@
+/**
+ * SQLite schema, migrations, and query helpers for all persisted entities.
+ *
+ * @module db
+ */
 import fs from 'node:fs';
 import path from 'node:path';
 
 import Database from 'better-sqlite3';
 
+/** SQL schema for all tables. */
 export const SCHEMA = `
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -64,6 +70,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     key TEXT NOT NULL UNIQUE,
     external_key TEXT,
     external_url TEXT,
+    /** TEXT type. */
     type TEXT NOT NULL DEFAULT 'task',
     title TEXT NOT NULL DEFAULT '',
     description TEXT NOT NULL DEFAULT '',
@@ -120,19 +127,24 @@ CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(created_at
 CREATE INDEX IF NOT EXISTS idx_chat_messages_workflow ON chat_messages(workflow_run_id);
 `;
 
+/** Row type. */
 export type Row = Record<string, any>;
+/** Conn type. */
 export type Conn = Database.Database;
 
+/** Current timestamp in ISO-8601. */
 export function now(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, '+00:00');
 }
 
+/** Open a SQLite connection with foreign keys enabled. */
 export function connect(dbPath: string): Conn {
   const conn = new Database(dbPath, { timeout: 30000 });
   conn.pragma('foreign_keys = ON');
   return conn;
 }
 
+/** Run a function in a transaction, rolling back on error. */
 export function withSession<T>(dbPath: string, fn: (conn: Conn) => T): T {
   const conn = connect(dbPath);
   try {
@@ -152,6 +164,7 @@ export function withSession<T>(dbPath: string, fn: (conn: Conn) => T): T {
   }
 }
 
+/** Initialize schema and run migrations. */
 export function initDb(dbPath: string): void {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const conn = connect(dbPath);
@@ -233,6 +246,7 @@ function migrateChatMessages(conn: Conn): void {
 
 // ── runtime configuration ────────────────────────────────────────────────────
 
+/** Read all app settings rows. */
 export function getAppSettings(conn: Conn): Record<string, string> {
   const rows = conn.prepare('SELECT key, value FROM app_settings').all() as Row[];
   const out: Record<string, string> = {};
@@ -240,6 +254,7 @@ export function getAppSettings(conn: Conn): Record<string, string> {
   return out;
 }
 
+/** Upsert app settings rows. */
 export function saveAppSettings(conn: Conn, values: Record<string, string>): void {
   const ts = now();
   const stmt = conn.prepare(
@@ -252,14 +267,17 @@ export function saveAppSettings(conn: Conn, values: Record<string, string>): voi
   }
 }
 
+/** Delete all app settings rows. */
 export function clearAppSettings(conn: Conn): void {
   conn.prepare('DELETE FROM app_settings').run();
 }
 
+/** json function. */
 function json(value: unknown): string {
   return JSON.stringify(value);
 }
 
+/** parseJson function. */
 function parseJson<T>(value: unknown, fallback: T): T {
   if (typeof value !== 'string' || !value) return fallback;
   try {
@@ -271,6 +289,7 @@ function parseJson<T>(value: unknown, fallback: T): T {
 
 // ── workflows / agent runs / artifacts ───────────────────────────────────────
 
+/** Insert a new workflow run. */
 export function createWorkflow(
   conn: Conn,
   kind: string,
@@ -287,6 +306,7 @@ export function createWorkflow(
   return Number(info.lastInsertRowid);
 }
 
+/** Update allowed workflow fields. */
 export function updateWorkflow(conn: Conn, runId: number, fields: Row): void {
   const allowed = new Set(['status', 'output_json', 'workspace_path', 'error', 'finished_at']);
   const updates: Row = {};
@@ -298,6 +318,7 @@ export function updateWorkflow(conn: Conn, runId: number, fields: Row): void {
   conn.prepare(`UPDATE workflow_runs SET ${assignments} WHERE id = ?`).run(...Object.values(updates), runId);
 }
 
+/** Parse JSON fields on a workflow row. */
 function workflowFromRow(row: Row): Row {
   const item: Row = { ...row };
   item.input = parseJson(item.input_json, {});
@@ -307,11 +328,13 @@ function workflowFromRow(row: Row): Row {
   return item;
 }
 
+/** Fetch a workflow by id. */
 export function getWorkflow(conn: Conn, runId: number): Row | null {
   const row = conn.prepare('SELECT * FROM workflow_runs WHERE id = ?').get(runId) as Row | undefined;
   return row ? workflowFromRow(row) : null;
 }
 
+/** List workflows newest first. */
 export function listWorkflows(conn: Conn, limit = 50): Row[] {
   const rows = conn
     .prepare('SELECT * FROM workflow_runs ORDER BY created_at DESC LIMIT ?')
@@ -319,6 +342,7 @@ export function listWorkflows(conn: Conn, limit = 50): Row[] {
   return rows.map(workflowFromRow);
 }
 
+/** Insert a running agent run. */
 export function startAgentRun(
   conn: Conn,
   workflowRunId: number | null,
@@ -338,6 +362,7 @@ export function startAgentRun(
   return Number(info.lastInsertRowid);
 }
 
+/** Mark an agent run finished. */
 export function finishAgentRun(
   conn: Conn,
   runId: number,
@@ -365,6 +390,7 @@ export function finishAgentRun(
     );
 }
 
+/** Parse JSON fields on an agent run row. */
 function agentRunFromRow(row: Row): Row {
   const item: Row = { ...row };
   item.input = parseJson(item.input_json, {});
@@ -374,6 +400,7 @@ function agentRunFromRow(row: Row): Row {
   return item;
 }
 
+/** List agent runs, optionally by workflow. */
 export function listAgentRuns(
   conn: Conn,
   workflowRunId: number | null = null,
@@ -390,6 +417,7 @@ export function listAgentRuns(
   return rows.map(agentRunFromRow);
 }
 
+/** List steps for an agent run. */
 export function listAgentSteps(
   conn: Conn,
   agentRunId: number,
@@ -401,6 +429,7 @@ export function listAgentSteps(
     .all(agentRunId) as Row[];
 }
 
+/** Insert an agent step. */
 export function saveAgentStep(
   conn: Conn,
   agentRunId: number,
@@ -436,6 +465,7 @@ export function saveAgentStep(
   return Number(info.lastInsertRowid);
 }
 
+/** List artifacts for an agent run. */
 export function listArtifactsForAgentRun(
   conn: Conn,
   agentRunId: number,
@@ -447,6 +477,7 @@ export function listArtifactsForAgentRun(
     .all(agentRunId) as Row[];
 }
 
+/** Insert an artifact. */
 export function saveArtifact(
   conn: Conn,
   workflowRunId: number | null,
@@ -465,12 +496,14 @@ export function saveArtifact(
   return Number(info.lastInsertRowid);
 }
 
+/** List artifacts for a workflow. */
 export function listArtifacts(conn: Conn, workflowRunId: number): Row[] {
   return conn
     .prepare('SELECT * FROM artifacts WHERE workflow_run_id = ? ORDER BY id ASC')
     .all(workflowRunId) as Row[];
 }
 
+/** Latest agent run per role. */
 export function latestAgentRunsByRole(conn: Conn): Record<string, Row> {
   const rows = conn
     .prepare(
@@ -490,6 +523,7 @@ export function latestAgentRunsByRole(conn: Conn): Record<string, Row> {
 
 // ── tickets / task tracker ───────────────────────────────────────────────────
 
+/** TicketCreateInput interface. */
 export interface TicketCreateInput {
   workflowRunId: number | null;
   projectKey: string;
@@ -504,6 +538,7 @@ export interface TicketCreateInput {
   links?: string[];
 }
 
+/** Parse JSON fields on a ticket row. */
 export function ticketFromRow(row: Row): Row {
   const item: Row = { ...row };
   item.labels = parseJson(item.labels_json, []);
@@ -513,6 +548,7 @@ export function ticketFromRow(row: Row): Row {
   return item;
 }
 
+/** Insert a ticket with a generated key. */
 export function createTicket(conn: Conn, input: TicketCreateInput): Row {
   const ts = now();
   const placeholder = `${input.projectKey}-pending-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -546,6 +582,7 @@ export function createTicket(conn: Conn, input: TicketCreateInput): Row {
   return getTicket(conn, key) as Row;
 }
 
+/** Fetch a ticket by key/external key/url. */
 export function getTicket(conn: Conn, key: string): Row | null {
   const row = conn
     .prepare('SELECT * FROM tickets WHERE key = ? OR external_key = ? OR external_url = ?')
@@ -553,6 +590,7 @@ export function getTicket(conn: Conn, key: string): Row | null {
   return row ? ticketFromRow(row) : null;
 }
 
+/** List tickets, optionally by workflow. */
 export function listTickets(
   conn: Conn,
   workflowRunId: number | null = null,
@@ -567,6 +605,7 @@ export function listTickets(
   return rows.map(ticketFromRow);
 }
 
+/** Update allowed ticket fields. */
 export function updateTicketRecord(conn: Conn, key: string, fields: Row): Row | null {
   const allowed = new Set([
     'external_key',
@@ -596,6 +635,7 @@ export function updateTicketRecord(conn: Conn, key: string, fields: Row): Row | 
   return getTicket(conn, key);
 }
 
+/** Insert a ticket event. */
 export function addTicketEvent(
   conn: Conn,
   ticketKey: string,
@@ -610,12 +650,14 @@ export function addTicketEvent(
     .run(ticketKey, event, actor, body, now());
 }
 
+/** List events for a ticket. */
 export function listTicketEvents(conn: Conn, key: string, limit = 200): Row[] {
   return conn
     .prepare('SELECT * FROM ticket_events WHERE ticket_key = ? ORDER BY id ASC LIMIT ?')
     .all(key, limit) as Row[];
 }
 
+/** Count rows in core tables. */
 export function stats(conn: Conn): Record<string, number> {
   const count = (table: string): number =>
     Number((conn.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as Row).n);
@@ -629,6 +671,7 @@ export function stats(conn: Conn): Record<string, number> {
 
 // ── chat messages ─────────────────────────────────────────────────────────────
 
+/** ChatMessageInput interface. */
 export interface ChatMessageInput {
   workflowRunId: number | null;
   role: 'user' | 'assistant' | 'system';
@@ -637,6 +680,7 @@ export interface ChatMessageInput {
   metadata?: Record<string, unknown>;
 }
 
+/** Insert a chat message. */
 export function saveChatMessage(
   conn: Conn,
   input: ChatMessageInput,
@@ -659,6 +703,7 @@ export function saveChatMessage(
   return getChatMessage(conn, id) as Row;
 }
 
+/** Fetch a chat message by id. */
 export function getChatMessage(conn: Conn, id: number): Row | null {
   const row = conn
     .prepare('SELECT * FROM chat_messages WHERE id = ?')
@@ -667,6 +712,7 @@ export function getChatMessage(conn: Conn, id: number): Row | null {
   return chatMessageFromRow(row);
 }
 
+/** Parse JSON fields on a chat message row. */
 function chatMessageFromRow(row: Row): Row {
   const item: Row = { ...row };
   item.metadata = parseJson(item.metadata_json, {});
@@ -674,6 +720,7 @@ function chatMessageFromRow(row: Row): Row {
   return item;
 }
 
+/** List chat messages oldest first. */
 export function listChatMessages(
   conn: Conn,
   limit = 100,
@@ -684,6 +731,7 @@ export function listChatMessages(
   return rows.map(chatMessageFromRow);
 }
 
+/** List recent chat messages newest first then reversed. */
 export function listRecentChatMessages(
   conn: Conn,
   limit = 50,

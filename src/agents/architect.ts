@@ -1,3 +1,11 @@
+/**
+ * @fileoverview Architect agent wrapper.
+ *
+ * Turns a product spec into an implementable architecture document (stack,
+ * file plan, data model, API, test plan, risks) via the LLM, validated against
+ * `architectureSchema`.
+ */
+
 import { Settings } from '../config';
 import { LLMClient } from '../llm/base';
 import { Agent, AgentResult } from './base';
@@ -5,6 +13,7 @@ import { Architecture, ProductSpec, architectureSchema } from './build_schemas';
 import { ARCHITECT } from './prompts';
 import { runAgent } from './runner';
 
+/** Architect role agent: designs the system architecture from a product spec. */
 export class Architect {
   readonly role = 'architect';
 

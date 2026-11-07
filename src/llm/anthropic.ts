@@ -1,3 +1,8 @@
+/**
+ * Anthropic Messages API adapter implementing {@link LLMClient}.
+ *
+ * @module llm/anthropic
+ */
 import {
   CompleteOptions,
   LLMClient,
@@ -9,6 +14,7 @@ import {
   sleep,
 } from './base';
 
+/** Anthropic Messages API client. */
 export class AnthropicClient extends LLMClient {
   provider = 'anthropic';
   model: string;
