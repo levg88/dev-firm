@@ -10,6 +10,7 @@ import {
   BugTriage,
   DesignReview,
   DeveloperReport,
+  DevOpsReport,
   ProductSpec,
   QAReport,
   TaskSpec,
@@ -18,6 +19,7 @@ import {
   bugTriageSchema,
   designReviewSchema,
   developerReportSchema,
+  devopsReportSchema,
   productSpecSchema,
   qaReportSchema,
   techLeadReviewSchema,
@@ -25,9 +27,11 @@ import {
 import { BuildAgents } from '../agents/build_team';
 import { Sandbox } from '../agents/tools';
 import type { AgentRole, DeveloperRole } from '../models';
+import type { AgentResult } from '../agents/base';
 import { createTracker } from '../tracker';
 import type { Ticket, TicketStatus, Tracker } from '../tracker';
 import { commitAs, ensureGitRepo } from './identities';
+import { BuildStatusReporter } from './status';
 
 export interface BuildResult {
   workflow_id: number;
@@ -43,6 +47,7 @@ export interface BuildResult {
   frontend: Record<string, any>;
   tech_lead: Record<string, any>;
   qa: Record<string, any>;
+  devops: Record<string, any>;
   tickets: Ticket[];
 }
 
@@ -69,6 +74,14 @@ const EMPTY_REVIEW: TechLeadReview = techLeadReviewSchema.parse({
   summary: '',
   issues: [],
 });
+const EMPTY_DEVOPS: DevOpsReport = devopsReportSchema.parse({
+  summary: '',
+  actions_taken: [],
+  deployments: [],
+  pipeline_status: '',
+  known_issues: [],
+  tasks_completed: [],
+});
 const EMPTY_TRIAGE: BugTriage = bugTriageSchema.parse({
   summary: '',
   assignments: [],
@@ -79,11 +92,12 @@ export class BuildService {
   readonly settings: Settings;
   readonly llm: LLMClient;
   readonly agents: BuildAgents;
+  private readonly statusReporters = new Map<number, BuildStatusReporter>();
 
   constructor(settings: Settings) {
     this.settings = settings;
     this.llm = buildLlm(settings);
-    this.agents = new BuildAgents(settings, this.llm);
+    this.agents = new BuildAgents(settings);
   }
 
   async run(brief: string, title = '', repoPath?: string): Promise<BuildResult> {
@@ -134,6 +148,7 @@ export class BuildService {
         frontend: (output as Record<string, any>).frontend ?? {},
         tech_lead: (output as Record<string, any>).tech_lead ?? {},
         qa: (output as Record<string, any>).qa ?? {},
+        devops: (output as Record<string, any>).devops ?? {},
         tickets: (output as Record<string, any>).tickets ?? [],
       };
     } catch (error) {
@@ -146,6 +161,10 @@ export class BuildService {
         }),
       );
       throw err;
+    } finally {
+      const reporter = this.statusReporters.get(workflowId);
+      reporter?.stop();
+      this.statusReporters.delete(workflowId);
     }
   }
 
@@ -218,10 +237,25 @@ export class BuildService {
     this._ticketsArtifact(workflowId, workspace, await tracker.list());
     this._commit(workspace, `dev-firm: task breakdown (${items.length} tasks)`);
 
+    const reporter = new BuildStatusReporter(
+      workflowId,
+      title,
+      tracker,
+      epic.key,
+      this.settings.maxBuildIterations,
+      (name, content) => this._artifact(workflowId, workspace, name, content),
+    );
+    this.statusReporters.set(workflowId, reporter);
+    reporter.start();
+    void reporter.report('baseline');
+
     // ── 2. architect + team lead design review ──────────────────────────────
     let architecture: Architecture = EMPTY_ARCHITECTURE;
     let designReview: DesignReview = EMPTY_DESIGN_REVIEW;
     for (let round = 1; round <= 2; round += 1) {
+      reporter.setPhase('architect', 'Architect is designing the system', {
+        detail: `round ${round}`,
+      });
       try {
         const archResult = await this.agents.architect(spec, {
           workflowRunId: workflowId,
@@ -253,6 +287,9 @@ export class BuildService {
       }
       this._commit(workspace, `dev-firm: architecture round ${round}`, 'architect');
 
+      reporter.setPhase('team_lead', 'Team lead is reviewing the design', {
+        detail: `round ${round}`,
+      });
       try {
         const reviewResult = await this.agents.team_lead(spec, architecture, items, {
           workflowRunId: workflowId,
@@ -310,6 +347,7 @@ export class BuildService {
     const reportsByRole: Record<string, DeveloperReport> = {};
     let lastReview: TechLeadReview | null = null;
     let lastQa: QAReport | null = null;
+    let lastDeploy: DevOpsReport | null = null;
 
     while (iteration < maxIterations && !passed) {
       iteration += 1;
@@ -325,44 +363,101 @@ export class BuildService {
         break;
       }
 
+      reporter.setPhase('developers', 'Developers are implementing tickets', {
+        iteration,
+        maxIterations,
+      });
       const iterationReports: DeveloperReport[] = [];
+      // Each role has two developer instances; run them sequentially (one at a
+      // time) so the single Ollama llama-server process isn't overwhelmed by
+      // concurrent requests. Commits and bookkeeping stay sequential.
+      const devInstances: Record<string, Array<(spec: unknown, architecture: unknown, sandbox: unknown, options: unknown) => Promise<AgentResult>>> = {
+        backend_developer: [
+          (spec: unknown, architecture: unknown, sandbox: unknown, options: unknown) =>
+            this.agents.backend_developer(spec as never, architecture as never, sandbox as never, options as never),
+          (spec: unknown, architecture: unknown, sandbox: unknown, options: unknown) =>
+            this.agents.backend_developer_2(spec as never, architecture as never, sandbox as never, options as never),
+        ],
+        frontend_developer: [
+          (spec: unknown, architecture: unknown, sandbox: unknown, options: unknown) =>
+            this.agents.frontend_developer(spec as never, architecture as never, sandbox as never, options as never),
+          (spec: unknown, architecture: unknown, sandbox: unknown, options: unknown) =>
+            this.agents.frontend_developer_2(spec as never, architecture as never, sandbox as never, options as never),
+        ],
+      };
+
+      const baseOptions = (role: string) => ({
+        feedback: feedbackByRole[role],
+        workflowRunId: workflowId,
+        iteration,
+      });
+
+      // Collect per-developer results: { role, name, group, report }
+      const devResults: Array<{ role: string; name: string; group: WorkItem[]; report: DeveloperReport }> = [];
+
       for (const [role, group] of groups) {
-        let report: DeveloperReport;
-        try {
-          const result =
-            role === 'frontend_developer'
-              ? await this.agents.frontend_developer(spec, architecture, sandbox, {
-                  feedback: feedbackByRole[role],
-                  workflowRunId: workflowId,
-                  iteration,
-                  tickets: group,
-                })
-              : await this.agents.backend_developer(spec, architecture, sandbox, {
-                  feedback: feedbackByRole[role],
-                  workflowRunId: workflowId,
-                  iteration,
-                  tickets: group,
-                });
-          report = developerReportSchema.parse(result.data ?? {});
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          report = developerReportSchema.parse({
-            summary: `${role} could not complete iteration ${iteration}.`,
-            files_written: [],
-            tests_run: [],
-            known_issues: [message],
-            tasks_completed: [],
-          });
-          this._artifact(workflowId, workspace, `${role}_error_iter${iteration}.md`, `# ${role} error\n\n${message}`);
+        const instances = devInstances[role] ?? [devInstances[role][0]];
+        const chunkSize = Math.max(1, Math.ceil(group.length / instances.length));
+        const chunks: WorkItem[][] = [];
+        for (let i = 0; i < group.length; i += chunkSize) chunks.push(group.slice(i, i + chunkSize));
+
+        for (let idx = 0; idx < chunks.length; idx += 1) {
+          const chunk = chunks[idx];
+          const instance = instances[idx] ?? instances[0];
+          const devName = idx === 0 ? role : `${role} (dev ${idx + 1})`;
+          try {
+            const result = await instance(spec, architecture, sandbox, {
+              ...baseOptions(role),
+              tickets: chunk,
+            });
+            const report = developerReportSchema.parse(result.data ?? {});
+            devResults.push({ role, name: devName, group: chunk, report });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this._artifact(
+              workflowId,
+              workspace,
+              `${devName.replace(/[^a-z0-9]+/gi, '_')}_error_iter${iteration}.md`,
+              `# ${devName} error\n\n${message}`,
+            );
+            devResults.push({
+              role,
+              name: devName,
+              group: chunk,
+              report: developerReportSchema.parse({
+                summary: `${devName} could not complete iteration ${iteration}.`,
+                files_written: [],
+                tests_run: [],
+                known_issues: [message],
+                tasks_completed: [],
+              }),
+            });
+          }
         }
-        reportsByRole[role] = report;
+      }
+
+      // Merge reports per role and save artifacts per developer (commits stay sequential).
+      const mergedByRole = new Map<string, DeveloperReport>();
+      for (const { role, name, group, report } of devResults) {
         iterationReports.push(report);
+        const existing = mergedByRole.get(role);
+        const merged: DeveloperReport = {
+          summary: (existing?.summary ?? '') + (existing?.summary ? ' | ' : '') + report.summary,
+          files_written: [...(existing?.files_written ?? []), ...report.files_written],
+          tests_run: [...(existing?.tests_run ?? []), ...report.tests_run],
+          known_issues: [...(existing?.known_issues ?? []), ...report.known_issues],
+          tasks_completed: [...(existing?.tasks_completed ?? []), ...report.tasks_completed],
+        };
+        mergedByRole.set(role, merged);
+
+        const safeName = name.replace(/[^a-z0-9]+/gi, '_');
         this._artifact(
           workflowId,
           workspace,
-          `${role}_report_iter${iteration}.md`,
+          `${safeName}_report_iter${iteration}.md`,
           this._developerMarkdown(report),
         );
+        this._artifact(workflowId, workspace, `${safeName}_report_iter${iteration}.json`, JSON.stringify(report));
         if (role === 'backend_developer') {
           this._artifact(workflowId, workspace, 'developer_report.md', this._developerMarkdown(report));
           this._artifact(workflowId, workspace, 'developer_report.json', JSON.stringify(report));
@@ -375,14 +470,21 @@ export class BuildService {
             item.key,
             'in_review',
             'tech_lead',
-            `${role} finished. Assigned to the tech lead for code review.`,
+            `${name} finished. Assigned to the tech lead for code review.`,
           );
           item.status = 'in_review';
         }
-        this._commit(workspace, `dev-firm: ${role} iteration ${iteration}`, role);
+        this._commit(workspace, `dev-firm: ${name} iteration ${iteration}`, role);
+      }
+      for (const [role, report] of mergedByRole) {
+        reportsByRole[role] = report;
       }
 
       let review: TechLeadReview;
+      reporter.setPhase('tech_lead', 'Tech lead is reviewing the implementation', {
+        iteration,
+        maxIterations,
+      });
       const install = await this._installDependencies(workflowId, workspace, sandbox, iteration);
       try {
         const result = await this.agents.tech_lead(spec, architecture, iterationReports, {
@@ -450,6 +552,10 @@ export class BuildService {
       }
 
       let qa: QAReport;
+      reporter.setPhase('qa', 'QA is verifying the implementation', {
+        iteration,
+        maxIterations,
+      });
       try {
         const result = await this.agents.qa(spec, architecture, sandbox, {
           workflowRunId: workflowId,
@@ -484,6 +590,49 @@ export class BuildService {
       this._commit(workspace, `dev-firm: QA iteration ${iteration}`, 'qa');
 
       if (qa.passed) {
+        // ── DevOps: deploy after QA passes ────────────────────────────────
+        reporter.setPhase('devops', 'DevOps is deploying the verified build', {
+          iteration,
+          maxIterations,
+        });
+        try {
+          const deployResult = await this.agents.devops(spec, sandbox, {
+            workflowRunId: workflowId,
+            iteration,
+            tickets: active,
+            qaPassed: true,
+            qaReport: qa,
+          });
+          const deployText = deployResult.text || '';
+          lastDeploy = devopsReportSchema.parse({
+            summary: deployText.slice(0, 500),
+            actions_taken: [],
+            deployments: [],
+            pipeline_status: 'deployed',
+            known_issues: [],
+            tasks_completed: [],
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          lastDeploy = devopsReportSchema.parse({
+            summary: `DevOps deployment failed: ${message}`,
+            actions_taken: [],
+            deployments: [],
+            pipeline_status: 'failed',
+            known_issues: [message],
+            tasks_completed: [],
+          });
+        }
+        this._artifact(
+          workflowId,
+          workspace,
+          `devops_report_iter${iteration}.md`,
+          `# DevOps deployment\n\n${lastDeploy.summary}\n\n## Actions taken\n${(lastDeploy.actions_taken as string[]).map((a: string) => `- ${a}`).join('\n') || '- None'}\n\n## Deployments\n${(lastDeploy.deployments as string[]).map((d: string) => `- ${d}`).join('\n') || '- None'}\n\n## Pipeline status\n${lastDeploy.pipeline_status}\n\n## Known issues\n${(lastDeploy.known_issues as string[]).map((i: string) => `- ${i}`).join('\n') || '- None'}`,
+        );
+        this._artifact(workflowId, workspace, 'devops_report.md', `# DevOps deployment\n\n${lastDeploy.summary}`);
+        this._artifact(workflowId, workspace, 'devops_report.json', JSON.stringify(lastDeploy));
+        this._commit(workspace, `dev-firm: devops deploy iteration ${iteration}`, 'devops');
+
         passed = true;
         const evidence = this._evidence(qa, iteration);
         for (const item of allItems) {
@@ -492,7 +641,7 @@ export class BuildService {
           item.status = 'done';
         }
         await tracker.close(epic.key, evidence);
-        await tracker.comment(epic.key, `Delivered in ${iteration} iteration(s).`, 'system');
+        await tracker.comment(epic.key, `Delivered in ${iteration} iteration(s). Deployed by DevOps.`, 'system');
         break;
       }
 
@@ -537,6 +686,10 @@ export class BuildService {
       allItems.push(...bugItems);
 
       let triage: BugTriage;
+      reporter.setPhase('bug_triage', 'Team lead is triaging QA bugs', {
+        iteration,
+        maxIterations,
+      });
       try {
         const result = await this.agents.triage(
           spec,
@@ -604,6 +757,12 @@ export class BuildService {
       );
     }
 
+    reporter.setPhase(passed ? 'done' : 'blocked', passed ? 'QA passed; build delivered' : 'Build blocked', {
+      iteration,
+      maxIterations,
+    });
+    await reporter.report(passed ? 'final' : 'blocked');
+
     const tickets = await tracker.list();
     this._ticketsArtifact(workflowId, workspace, tickets);
     this._commit(workspace, `dev-firm: build (${brief.slice(0, 60)})`, 'qa');
@@ -621,6 +780,7 @@ export class BuildService {
       frontend: JSON.parse(JSON.stringify(reportsByRole.frontend_developer ?? {})),
       tech_lead: JSON.parse(JSON.stringify(lastReview ?? EMPTY_REVIEW)),
       qa: JSON.parse(JSON.stringify(lastQa ?? EMPTY_QA)),
+      devops: JSON.parse(JSON.stringify(lastDeploy ?? EMPTY_DEVOPS)),
     };
   }
 

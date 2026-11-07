@@ -1,37 +1,65 @@
 <%- include("partials/header", { title: "Agents · Dev Firm" }) %>
-<h1>Agent health</h1>
+<h1>Agent team</h1>
 <p class="lead">
-  Status of each role in the build team. Health reflects the most recent recorded run for
-  that agent; a role shows <em>never-run</em> until its first build.
+  Every agent instance across all builds. Each role can have multiple instances
+  (e.g. Backend Developer 1 & 2). Click a row to see the full conversation log,
+  steps, and artifacts.
 </p>
 
-<div class="card table-wrap">
-  <table>
-    <thead><tr><th>Role</th><th>Status</th><th>Model</th><th>Last run</th><th>Error</th></tr></thead>
-    <tbody>
-    <% for (const agent of agents) { %>
-      <tr>
-        <td><strong><%= agent.role %></strong></td>
-        <% if (agent.run) { %>
-        <td><span class="badge <%= agent.run.status %>"><%= agent.run.status %></span></td>
-        <td class="small muted"><%= agent.run.provider %> / <%= agent.run.model %></td>
-        <td class="small muted"><%= String(agent.run.finished_at || agent.run.created_at || '').slice(0, 16).replace('T', ' ') %></td>
-        <td class="small muted"><%= agent.run.error || '—' %></td>
-        <% } else { %>
-        <td><span class="badge">never-run</span></td>
-        <td class="small muted">—</td>
-        <td class="small muted">—</td>
-        <td class="small muted">—</td>
-        <% } %>
-      </tr>
-    <% } %>
-    </tbody>
-  </table>
+<% if (!roles || !roles.length) { %>
+<div class="empty">No agent runs yet. <a href="/build">Start a build</a> to populate the team.</div>
+<% } else { %>
+
+<div class="grid two" style="margin-top: 16px;">
+  <% for (const role of roles) { %>
+  <% const runs = by_role[role] || []; %>
+  <section class="card">
+    <h3 style="display: flex; justify-content: space-between; align-items: center;">
+      <span><%= role %></span>
+      <span class="badge"><%= runs.length %></span>
+    </h3>
+    <div class="table-wrap" style="margin-top: 10px;">
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 60px;">#</th>
+            <th>Instance</th>
+            <th style="width: 120px;">Status</th>
+            <th style="width: 160px;">Model</th>
+            <th style="width: 160px;">Started</th>
+            <th style="width: 120px;">Tokens</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% for (const run of runs) { %>
+          <tr>
+            <td class="mono small"><%= run.id %></td>
+            <td>
+              <a href="/agents/<%= run.id %>" style="color: var(--navy); text-decoration: none; font-weight: 600;">
+                <%= run.role %>
+              </a>
+              <% if (run.error) { %>
+                <span class="badge failed" style="font-size: 10px; margin-left: 6px;">error</span>
+              <% } %>
+            </td>
+            <td>
+              <span class="badge <%= run.status %>"><%= run.status %></span>
+            </td>
+            <td class="small muted mono"><%= run.provider %> / <%= run.model %></td>
+            <td class="small muted"><%= String(run.created_at || '').slice(0, 16).replace('T', ' ') %></td>
+            <td class="small muted"><%= run.prompt_tokens + run.completion_tokens %></td>
+          </tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <% } %>
 </div>
 
-<p class="small muted" style="margin-top: 12px;">
-  Configure the team's model in <a href="/settings">Settings</a>. Run a build in the
-  <a href="/build">Build lab</a> to populate run history; the full audit trail lives on
-  the <a href="/runs">Runs</a> page.
+<p class="small muted" style="margin-top: 16px;">
+  <a href="/runs">Full audit trail →</a> ·
+  <a href="/tickets">Ticket board →</a>
 </p>
+<% } %>
 <%- include("partials/footer") %>

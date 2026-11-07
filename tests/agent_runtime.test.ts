@@ -169,6 +169,33 @@ describe('agent runtime', () => {
     expect(fs.readFileSync(path.join(workspace, 'server.js'), 'utf8')).toBe('console.log(1)\n');
   });
 
+  it('recovers template-literal file content', async () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-firm-template-'));
+    const expected = '\nconst x: number = 1;\nconsole.log(`value ${x}`);\n';
+    const text = [
+      '```json',
+      '{',
+      '  "name": "write_file",',
+      '  "arguments": {',
+      '    "path": "server.ts",',
+      '    "content": `',
+      'const x: number = 1;',
+      'console.log(`value ${x}`);',
+      '`',
+      '  }',
+      '}',
+      '```',
+    ].join('\n');
+    const llm = new ScriptedLLM([response({ text }), response({ text: '{"ok": true}' })]);
+
+    const result = await makeAgent(llm, makeTools(new Sandbox(workspace))).run('do it', {
+      schema: Answer,
+    });
+
+    expect(result.data).toEqual({ ok: true });
+    expect(fs.readFileSync(path.join(workspace, 'server.ts'), 'utf8')).toBe(expected);
+  });
+
   it('parses JSON from common model shapes', () => {
     expect(parseJsonObject('```json\n{"a": 1}\n```')).toEqual({ a: 1 });
     expect(parseJsonObject('Here is the result: {"a": 2}')).toEqual({ a: 2 });

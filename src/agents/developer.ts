@@ -27,13 +27,16 @@ export interface DeveloperRunOptions {
 
 export class Developer {
   readonly role: DeveloperRole;
+  readonly name: string;
 
   constructor(
     private settings: Settings,
     private llm: LLMClient,
     role: DeveloperRole = 'backend_developer',
+    name: string = role,
   ) {
     this.role = role;
+    this.name = name;
   }
 
   async run(
@@ -45,7 +48,7 @@ export class Developer {
     const isFrontend = this.role === 'frontend_developer';
     const agent = new Agent(
       {
-        name: this.role,
+        name: this.name,
         role: this.role,
         systemPrompt: isFrontend ? FRONTEND_DEVELOPER : BACKEND_DEVELOPER,
         temperature: 0.2,
@@ -83,8 +86,10 @@ export class Developer {
       '',
       '## RUNTIME',
       `- Node.js version: ${process.version.replace(/^v/, '')}`,
+      '- This project must be TypeScript: .ts files, strict tsconfig.json, and no .js source.',
+      '- Scripts: typecheck "tsc --noEmit", build "tsc", test "vitest run".',
       '- Use the built-in node:sqlite module for persistence. Never add native addons (better-sqlite3, sqlite3).',
-      '- Use current packages: express ^5, ejs ^3, vitest ^3, supertest ^7. The test script must be "vitest run".',
+      '- Use current packages: express ^5, ejs ^3, vitest ^3, supertest ^7, typescript ^5.',
       '- Declare every runtime import in dependencies and run npm install before npm test.',
       '- Stop retrying a failing command after two attempts; return the report with the error.',
       '',

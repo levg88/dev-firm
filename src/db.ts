@@ -90,6 +90,34 @@ CREATE TABLE IF NOT EXISTS ticket_events (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_ticket_events_key ON ticket_events(ticket_key);
+
+CREATE TABLE IF NOT EXISTS agent_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_run_id INTEGER NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+    step_number INTEGER NOT NULL DEFAULT 0,
+    role TEXT NOT NULL DEFAULT '',
+    tool_call_id TEXT,
+    tool_name TEXT,
+    tool_arguments TEXT,
+    tool_result TEXT,
+    llm_text TEXT,
+    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+    completion_tokens INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_steps_run ON agent_steps(agent_run_id, step_number);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    workflow_run_id INTEGER REFERENCES workflow_runs(id) ON DELETE SET NULL,
+    role TEXT NOT NULL DEFAULT 'user',  -- 'user' | 'assistant' | 'system'
+    content TEXT NOT NULL DEFAULT '',
+    agent_role TEXT,  -- which agent responded, if any
+    metadata_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_workflow ON chat_messages(workflow_run_id);
 `;
 
 export type Row = Record<string, any>;
@@ -130,6 +158,8 @@ export function initDb(dbPath: string): void {
   try {
     conn.exec(SCHEMA);
     migrateTickets(conn);
+    migrateAgentSteps(conn);
+    migrateChatMessages(conn);
   } finally {
     conn.close();
   }
@@ -150,6 +180,54 @@ function migrateTickets(conn: Conn): void {
     conn.exec(
       'UPDATE tickets SET external_key = jira_key WHERE external_key IS NULL AND jira_key IS NOT NULL',
     );
+  }
+}
+
+/** Ensure the agent_steps table exists for existing databases. */
+function migrateAgentSteps(conn: Conn): void {
+  const columns = new Set(
+    (conn.prepare('PRAGMA table_info(agent_steps)').all() as Row[]).map((row) => String(row.name)),
+  );
+  if (columns.size === 0) {
+    conn.exec(`
+      CREATE TABLE IF NOT EXISTS agent_steps (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        agent_run_id INTEGER NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+        step_number INTEGER NOT NULL DEFAULT 0,
+        role TEXT NOT NULL DEFAULT '',
+        tool_call_id TEXT,
+        tool_name TEXT,
+        tool_arguments TEXT,
+        tool_result TEXT,
+        llm_text TEXT,
+        prompt_tokens INTEGER NOT NULL DEFAULT 0,
+        completion_tokens INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_agent_steps_run ON agent_steps(agent_run_id, step_number);
+    `);
+  }
+}
+
+/** Ensure the chat_messages table exists for existing databases. */
+function migrateChatMessages(conn: Conn): void {
+  const columns = new Set(
+    (conn.prepare('PRAGMA table_info(chat_messages)').all() as Row[]).map((row) => String(row.name)),
+  );
+  if (columns.size === 0) {
+    conn.exec(`
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workflow_run_id INTEGER REFERENCES workflow_runs(id) ON DELETE SET NULL,
+        role TEXT NOT NULL DEFAULT 'user',
+        content TEXT NOT NULL DEFAULT '',
+        agent_role TEXT,
+        metadata_json TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_chat_messages_workflow ON chat_messages(workflow_run_id);
+    `);
   }
 }
 
@@ -310,6 +388,63 @@ export function listAgentRuns(
           .prepare('SELECT * FROM agent_runs WHERE workflow_run_id = ? ORDER BY id ASC LIMIT ?')
           .all(workflowRunId, limit) as Row[]);
   return rows.map(agentRunFromRow);
+}
+
+export function listAgentSteps(
+  conn: Conn,
+  agentRunId: number,
+): Row[] {
+  return conn
+    .prepare(
+      'SELECT * FROM agent_steps WHERE agent_run_id = ? ORDER BY step_number ASC, id ASC',
+    )
+    .all(agentRunId) as Row[];
+}
+
+export function saveAgentStep(
+  conn: Conn,
+  agentRunId: number,
+  stepNumber: number,
+  role: string,
+  toolCallId?: string | null,
+  toolName?: string | null,
+  toolArguments?: string | null,
+  toolResult?: string | null,
+  llmText?: string | null,
+  promptTokens = 0,
+  completionTokens = 0,
+): number {
+  const info = conn
+    .prepare(
+      `INSERT INTO agent_steps
+       (agent_run_id, step_number, role, tool_call_id, tool_name, tool_arguments, tool_result, llm_text, prompt_tokens, completion_tokens, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      agentRunId,
+      stepNumber,
+      role,
+      toolCallId ?? null,
+      toolName ?? null,
+      toolArguments ?? null,
+      toolResult ?? null,
+      llmText ?? null,
+      promptTokens,
+      completionTokens,
+      now(),
+    );
+  return Number(info.lastInsertRowid);
+}
+
+export function listArtifactsForAgentRun(
+  conn: Conn,
+  agentRunId: number,
+): Row[] {
+  return conn
+    .prepare(
+      'SELECT * FROM artifacts WHERE agent_run_id = ? ORDER BY id ASC',
+    )
+    .all(agentRunId) as Row[];
 }
 
 export function saveArtifact(
@@ -490,4 +625,71 @@ export function stats(conn: Conn): Record<string, number> {
     artifacts: count('artifacts'),
     tickets: count('tickets'),
   };
+}
+
+// ── chat messages ─────────────────────────────────────────────────────────────
+
+export interface ChatMessageInput {
+  workflowRunId: number | null;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  agentRole?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export function saveChatMessage(
+  conn: Conn,
+  input: ChatMessageInput,
+): Row {
+  const info = conn
+    .prepare(
+      `INSERT INTO chat_messages
+       (workflow_run_id, role, content, agent_role, metadata_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      input.workflowRunId,
+      input.role,
+      input.content,
+      input.agentRole ?? null,
+      json(input.metadata ?? {}),
+      now(),
+    );
+  const id = Number(info.lastInsertRowid);
+  return getChatMessage(conn, id) as Row;
+}
+
+export function getChatMessage(conn: Conn, id: number): Row | null {
+  const row = conn
+    .prepare('SELECT * FROM chat_messages WHERE id = ?')
+    .get(id) as Row | undefined;
+  if (!row) return null;
+  return chatMessageFromRow(row);
+}
+
+function chatMessageFromRow(row: Row): Row {
+  const item: Row = { ...row };
+  item.metadata = parseJson(item.metadata_json, {});
+  delete item.metadata_json;
+  return item;
+}
+
+export function listChatMessages(
+  conn: Conn,
+  limit = 100,
+): Row[] {
+  const rows = conn
+    .prepare('SELECT * FROM chat_messages ORDER BY id ASC LIMIT ?')
+    .all(limit) as Row[];
+  return rows.map(chatMessageFromRow);
+}
+
+export function listRecentChatMessages(
+  conn: Conn,
+  limit = 50,
+): Row[] {
+  const rows = conn
+    .prepare('SELECT * FROM chat_messages ORDER BY id DESC LIMIT ?')
+    .all(limit) as Row[];
+  return rows.map(chatMessageFromRow).reverse();
 }

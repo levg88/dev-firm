@@ -42,6 +42,7 @@ export async function runAgent(
     result = await agent.run(options.task, {
       context,
       schema: options.schema,
+      agentRunId: runId,
     });
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));

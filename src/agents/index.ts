@@ -11,6 +11,7 @@ export {
   QA,
   TEAM_LEAD,
   TL,
+  DEVOPS,
 } from './prompts';
 export {
   architectureSchema,

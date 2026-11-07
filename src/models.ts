@@ -80,6 +80,7 @@ export const AGENT_ROLES = [
   'frontend_developer',
   'tech_lead',
   'qa',
+  'devops',
 ] as const;
 export type AgentRole = (typeof AGENT_ROLES)[number];
 
@@ -216,6 +217,15 @@ export const bugTriageSchema = z.object({
   issues: listField,
 });
 
+export const devopsReportSchema = z.object({
+  summary: z.preprocess((value) => coerceText(value), z.string().default('')),
+  actions_taken: z.preprocess((value) => asList(value), z.array(z.string()).default([])),
+  deployments: z.preprocess((value) => asList(value), z.array(z.string()).default([])),
+  pipeline_status: z.preprocess((value) => coerceText(value), z.string().default('')),
+  known_issues: z.preprocess((value) => asList(value), z.array(z.string()).default([])),
+  tasks_completed: z.preprocess((value) => asList(value), z.array(z.string()).default([])),
+});
+
 export type QAReport = z.infer<typeof qaReportSchema>;
 export type ProductSpec = z.infer<typeof productSpecSchema>;
 export type Architecture = z.infer<typeof architectureSchema>;
@@ -224,6 +234,7 @@ export type FilePlan = z.infer<typeof filePlanSchema>;
 export type TechLeadReview = z.infer<typeof techLeadReviewSchema>;
 export type DesignReview = z.infer<typeof designReviewSchema>;
 export type BugTriage = z.infer<typeof bugTriageSchema>;
+export type DevOpsReport = z.infer<typeof devopsReportSchema>;
 export type TaskSpec = z.infer<typeof taskSchema>;
 export type BugSpec = z.infer<typeof bugSchema>;
 export type Assignment = z.infer<typeof assignmentSchema>;

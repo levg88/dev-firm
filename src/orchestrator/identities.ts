@@ -24,6 +24,7 @@ export const AGENT_IDENTITIES: Record<AgentRole, GitIdentity> = {
   frontend_developer: { name: 'Dev Firm Frontend Developer', email: 'frontend-dev@dev-firm.local' },
   tech_lead: { name: 'Dev Firm Tech Lead', email: 'tech-lead@dev-firm.local' },
   qa: { name: 'Dev Firm QA', email: 'qa@dev-firm.local' },
+  devops: { name: 'Dev Firm DevOps', email: 'devops@dev-firm.local' },
 };
 
 export function identityFor(role: AgentRole | string): GitIdentity {

@@ -1,0 +1,122 @@
+<% const pageTitle = "Agent " + run.role + " #" + run.id + " · Dev Firm"; %>
+<%- include("partials/header", { title: pageTitle }) %>
+<div class="split">
+  <div class="grow">
+    <p class="small muted" style="margin-bottom: 4px;">Agent run #<%= run.id %></p>
+    <h1><%= run.role %></h1>
+    <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px;">
+      <span class="badge <%= run.status %>"><%= run.status %></span>
+      <span class="badge"><%= run.provider %></span>
+      <span class="badge"><%= run.model %></span>
+      <span class="badge"><%= run.workflow %></span>
+      <% if (run.workflow_run_id) { %>
+      <span class="badge">build #<%= run.workflow_run_id %></span>
+      <% } %>
+    </div>
+    <p class="small muted">
+      Started: <%= String(run.created_at || '').slice(0, 16).replace('T', ' ') %>
+      <% if (run.finished_at) { %> · Finished: <%= String(run.finished_at).slice(0, 16).replace('T', ' ') %><% } %>
+      <% if (run.error) { %> · <span style="color: var(--red);"><strong>Error:</strong> <%= run.error %></span><% } %>
+    </p>
+  </div>
+  <a class="button secondary" href="/agents">← Back to agents</a>
+</div>
+
+<% if (run.input) { %>
+<div class="card" style="margin-top: 16px;">
+  <h3 style="font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 8px;">Input task</h3>
+  <div class="ticket-body"><%= run.input.task || JSON.stringify(run.input, null, 2) %></div>
+</div>
+<% } %>
+
+<% if (steps && steps.length) { %>
+<div class="card" style="margin-top: 16px;">
+  <h3 style="font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 12px;">Conversation log (<%= steps.length %> steps)</h3>
+  <div class="conversation">
+    <% for (const step of steps) { %>
+    <div class="conv-step <%= step.role %>">
+      <div class="conv-step-header">
+        <span class="conv-step-badge"><%= step.role %></span>
+        <span class="conv-step-number">Step <%= step.step_number %></span>
+        <% if (step.tool_name) { %><span class="conv-step-tool"><%= step.tool_name %></span><% } %>
+        <span class="conv-step-time" style="margin-left: auto; font-size: 11px; color: var(--muted);"><%= String(step.created_at || '').slice(11, 16) %></span>
+      </div>
+      <% if (step.llm_text) { %>
+      <div class="conv-llm">
+        <span class="conv-label">LLM response:</span>
+        <pre><%= step.llm_text %></pre>
+      </div>
+      <% } %>
+      <% if (step.tool_name && step.tool_arguments) { %>
+      <div class="conv-tool">
+        <span class="conv-label">Tool call: <%= step.tool_name %></span>
+        <pre><%= step.tool_arguments %></pre>
+      </div>
+      <% } %>
+      <% if (step.tool_result) { %>
+      <div class="conv-result">
+        <span class="conv-label">Tool result:</span>
+        <pre><%= step.tool_result %></pre>
+      </div>
+      <% } %>
+      <% if (!step.llm_text && !step.tool_name && !step.tool_result) { %>
+      <div class="conv-empty">Step recorded (no content)</div>
+      <% } %>
+    </div>
+    <% } %>
+  </div>
+</div>
+<% } else { %>
+<div class="card" style="margin-top: 16px;">
+  <h3 style="font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 8px;">Conversation log</h3>
+  <div class="empty">No steps recorded for this agent run.</div>
+</div>
+<% } %>
+
+<% if (run.output) { %>
+<div class="card" style="margin-top: 16px;">
+  <h3 style="font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 8px;">Output result</h3>
+  <pre class="conv-result"><%= JSON.stringify(run.output, null, 2) %></pre>
+</div>
+<% } %>
+
+<% if (artifacts && artifacts.length) { %>
+<div class="card" style="margin-top: 16px;">
+  <h3 style="font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 12px;">Artifacts (<%= artifacts.length %>)</h3>
+  <% for (const artifact of artifacts) { %>
+  <div class="artifact">
+    <h4><%= artifact.name %> <span class="badge"><%= artifact.kind %></span></h4>
+    <% if (artifact.path) { %><p class="small muted mono"><%= artifact.path %></p><% } %>
+    <% if (artifact.content) { %>
+    <details>
+      <summary>Preview</summary>
+      <pre><%= String(artifact.content).slice(0, 12000) %></pre>
+    </details>
+    <% } %>
+  </div>
+  <% } %>
+</div>
+<% } %>
+
+<% if (tickets && tickets.length) { %>
+<div class="card" style="margin-top: 16px;">
+  <h3 style="font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 12px;">Tickets in this build (<%= tickets.length %>)</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Key</th><th>Type</th><th>Title</th><th>Status</th><th>Assignee</th></tr></thead>
+      <tbody>
+      <% for (const ticket of tickets) { %>
+      <tr>
+        <td class="mono small"><a href="/tickets/<%= ticket.key %>"><%= ticket.key %></a></td>
+        <td><span class="badge"><%= ticket.type %></span></td>
+        <td><%= ticket.title %></td>
+        <td><span class="badge <%= ticket.status %>"><%= ticket.status %></span></td>
+        <td class="small"><%= ticket.assignee || "—" %></td>
+      </tr>
+      <% } %>
+      </tbody>
+    </table>
+  </div>
+</div>
+<% } %>
+<%- include("partials/footer") %>

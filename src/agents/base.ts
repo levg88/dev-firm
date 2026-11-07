@@ -2,7 +2,17 @@ import type { ZodType } from 'zod';
 import { toJSONSchema } from 'zod';
 
 import { Settings } from '../config';
-import { LLMClient, LLMError, LLMResponse, ToolCall, parseJsonObject, response, sleep } from '../llm/base';
+import * as db from '../db';
+import {
+  LLMClient,
+  LLMError,
+  LLMResponse,
+  ToolCall,
+  parseJsonObject,
+  response,
+  sleep,
+} from '../llm/base';
+import { saveAgentStep, listAgentSteps } from '../db';
 
 export class AgentError extends Error {
   constructor(message: string) {
@@ -241,6 +251,73 @@ function replaceStringifyCalls(text: string): string {
   return out;
 }
 
+/**
+ * Some models wrap file content in a JavaScript template literal instead of a
+ * JSON string. Convert an unquoted `...` block to a JSON string literal.
+ */
+function replaceTemplateLiterals(text: string): string {
+  let out = '';
+  let i = 0;
+  while (i < text.length) {
+    const c = text[i];
+    if (c === '"' || c === "'") {
+      const quote = c;
+      out += c;
+      i++;
+      while (i < text.length) {
+        const d = text[i];
+        out += d;
+        i++;
+        if (d === '\\') {
+          if (i < text.length) {
+            out += text[i];
+            i++;
+          }
+          continue;
+        }
+        if (d === quote) break;
+      }
+      continue;
+    }
+    if (c === '`') {
+      let j = i + 1;
+      let inner = '';
+      let close = -1;
+      while (j < text.length) {
+        const d = text[j];
+        if (d === '\\') {
+          inner += d;
+          j++;
+          if (j < text.length) {
+            inner += text[j];
+            j++;
+          }
+          continue;
+        }
+        if (d === '`') {
+          let k = j + 1;
+          while (k < text.length && /\s/.test(text[k])) k++;
+          const next = k >= text.length ? '' : text[k];
+          if (!next || next === ',' || next === '}' || next === ']') {
+            close = j;
+            break;
+          }
+        }
+        inner += d;
+        j++;
+      }
+      if (close !== -1) {
+        out += JSON.stringify(inner);
+        i = close + 1;
+        continue;
+      }
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
 /** Extract every top-level JSON object, ignoring braces inside strings. */
 function scanTopLevelObjects(text: string): string[] {
   const objects: string[] = [];
@@ -321,19 +398,27 @@ function collectTextToolCalls(text: string): CollectedTextCalls {
 }
 
 function extractTextToolCalls(text: string): ToolCall[] {
-  // Parse the text as-is first. Only repair failed objects with
-  // `JSON.stringify(...)`: the repair rewrites text and must not touch valid
-  // JSON content that happens to contain JSON.stringify inside a string.
+  // Parse the text as-is first. Only repair failed objects: the repairs rewrite
+  // text and must not touch valid JSON content that happens to contain
+  // JSON.stringify or backticks inside a string.
   const direct = collectTextToolCalls(text);
   if (!direct.failures.length) return direct.calls;
-  const repaired = collectTextToolCalls(direct.failures.map(replaceStringifyCalls).join('\n'));
   const merged = [...direct.calls];
   const seen = new Set(merged.map((call) => `${call.name}:${JSON.stringify(call.arguments)}`));
-  for (const call of repaired.calls) {
-    const key = `${call.name}:${JSON.stringify(call.arguments)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push(call);
+  for (const failure of direct.failures) {
+    const variants = [
+      replaceTemplateLiterals(failure),
+      replaceStringifyCalls(failure),
+      replaceStringifyCalls(replaceTemplateLiterals(failure)),
+    ];
+    for (const variant of variants) {
+      for (const call of collectTextToolCalls(variant).calls) {
+        const key = `${call.name}:${JSON.stringify(call.arguments)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        merged.push(call);
+      }
+    }
   }
   return merged;
 }
@@ -362,7 +447,7 @@ export class Agent {
 
   async run(
     task: string,
-    options: { context?: string; schema?: ZodType; maxSteps?: number } = {},
+    options: { context?: string; schema?: ZodType; maxSteps?: number; agentRunId?: number } = {},
   ): Promise<AgentResult> {
     let system = this.spec.systemPrompt.trim();
     if (options.schema) {
@@ -389,6 +474,40 @@ export class Agent {
     let steps = 0;
     const limit = options.maxSteps ?? this.settings.maxAgentSteps;
     const debug = process.env.DEV_FIRM_DEBUG === '1';
+    const agentRunId = options.agentRunId;
+
+    const saveStep = async (
+      stepNumber: number,
+      role: string,
+      toolCallId?: string | null,
+      toolName?: string | null,
+      toolArguments?: string | null,
+      toolResult?: string | null,
+      llmText?: string | null,
+      promptTokens = 0,
+      completionTokens = 0,
+    ): Promise<void> => {
+      if (!agentRunId) return;
+      try {
+        db.withSession(this.settings.dbPath, (conn) =>
+          db.saveAgentStep(
+            conn,
+            agentRunId,
+            stepNumber,
+            role,
+            toolCallId ?? undefined,
+            toolName ?? undefined,
+            toolArguments ?? undefined,
+            toolResult ?? undefined,
+            llmText ?? undefined,
+            promptTokens,
+            completionTokens,
+          ),
+        );
+      } catch {
+        // Step logging must never break the agent run.
+      }
+    };
 
     for (let step = 1; step <= limit; step += 1) {
       steps = step;
@@ -427,6 +546,18 @@ export class Agent {
           `[${this.spec.name}] step ${step}/${limit} tools=${names} text=${llmResponse.text.length}\n`,
         );
       }
+
+      await saveStep(
+        step,
+        'assistant',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        llmResponse.text || null,
+        llmResponse.promptTokens,
+        llmResponse.completionTokens,
+      );
 
       // Some weaker local models emit tool calls as text instead of using the
       // function-calling API. Detect and recover those so the run can proceed.
@@ -475,12 +606,34 @@ export class Agent {
               `[${this.spec.name}] ${call.name} ${JSON.stringify(call.arguments).slice(0, 400)}\n`,
             );
           }
+          await saveStep(
+            step,
+            'tool',
+            call.id,
+            call.name,
+            JSON.stringify(call.arguments),
+            undefined,
+            undefined,
+            0,
+            0,
+          );
           const result = await this.tools.execute(call.name, call.arguments);
           if (debug) {
             process.stderr.write(
               `[${this.spec.name}] -> ${String(result).slice(0, 300).replace(/\n/g, ' ')}\n`,
             );
           }
+          await saveStep(
+            step,
+            'tool',
+            call.id,
+            call.name,
+            undefined,
+            String(result),
+            undefined,
+            0,
+            0,
+          );
           messages.push({
             role: 'tool',
             tool_call_id: call.id,

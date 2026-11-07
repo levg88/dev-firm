@@ -19,9 +19,10 @@ describe('GitHub tracker mapping', () => {
 
   it('gives every role its own git identity', () => {
     const emails = new Set(Object.values(AGENT_IDENTITIES).map((identity) => identity.email));
-    expect(emails.size).toBe(7);
+    expect(emails.size).toBe(8);
     expect(identityFor('qa').email).toBe('qa@dev-firm.local');
     expect(identityFor('frontend_developer').name).toContain('Frontend');
+    expect(identityFor('devops').email).toBe('devops@dev-firm.local');
   });
 
   it('stores and looks up GitHub issue metadata on the local ticket', async () => {

@@ -12,10 +12,22 @@ export { AnthropicClient } from './anthropic';
 export { parseJsonObject } from './base';
 
 export function buildLlm(settings: Settings): LLMClient {
+  return buildLlmForRole(settings, undefined);
+}
+
+/**
+ * Build an LLM client for a specific agent role.
+ * Falls back to the default settings.model / ollamaBaseUrl when no role override is set.
+ * Enables multiple Ollama instances (e.g. beam-free for developers, deepseek for tech lead/QA).
+ */
+export function buildLlmForRole(settings: Settings, role: string | undefined): LLMClient {
   const provider = settings.provider;
   if (provider === 'mock') {
     return new MockClient('Offline mode selected');
   }
+
+  const roleModel = role && settings.roleModels?.[role] ? settings.roleModels[role] : settings.model;
+  const roleBaseUrl = role && settings.roleBaseUrls?.[role] ? settings.roleBaseUrls[role] : undefined;
 
   if (provider === 'anthropic') {
     if (!settings.anthropicApiKey) {
@@ -24,7 +36,7 @@ export function buildLlm(settings: Settings): LLMClient {
     return new AnthropicClient({
       apiKey: settings.anthropicApiKey,
       baseUrl: settings.anthropicBaseUrl,
-      model: settings.model,
+      model: roleModel,
       temperature: settings.temperature,
       maxTokens: settings.maxTokens,
       timeout: settings.timeout,
@@ -34,8 +46,8 @@ export function buildLlm(settings: Settings): LLMClient {
   if (provider === 'ollama') {
     return new OpenAICompatClient({
       apiKey: 'ollama',
-      baseUrl: settings.ollamaBaseUrl,
-      model: settings.model,
+      baseUrl: roleBaseUrl ?? settings.ollamaBaseUrl,
+      model: roleModel,
       temperature: settings.temperature,
       maxTokens: settings.maxTokens,
       timeout: settings.timeout,
@@ -49,8 +61,8 @@ export function buildLlm(settings: Settings): LLMClient {
     }
     return new OpenAICompatClient({
       apiKey: settings.apiKey,
-      baseUrl: settings.baseUrl,
-      model: settings.model,
+      baseUrl: roleBaseUrl ?? settings.baseUrl,
+      model: roleModel,
       temperature: settings.temperature,
       maxTokens: settings.maxTokens,
       timeout: settings.timeout,
@@ -64,8 +76,8 @@ export function buildLlm(settings: Settings): LLMClient {
     }
     return new OpenAICompatClient({
       apiKey: settings.opencodeApiKey,
-      baseUrl: settings.opencodeBaseUrl,
-      model: settings.model,
+      baseUrl: roleBaseUrl ?? settings.opencodeBaseUrl,
+      model: roleModel,
       temperature: settings.temperature,
       maxTokens: settings.maxTokens,
       timeout: settings.timeout,

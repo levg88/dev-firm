@@ -1,0 +1,187 @@
+<%- include("partials/header", { title: "Chat · Dev Firm" }) %>
+<h1>Talk to the team</h1>
+<p class="lead">
+  Send messages to the dev firm: start new builds, check status, or ask about
+  tickets and agents. Everything is recorded in the conversation log.
+</p>
+
+<div class="split" style="margin-top: 16px;">
+  <div class="grow" style="min-width: 0;">
+    <div class="card" style="margin-bottom: 16px; height: 520px; overflow-y: auto; display: flex; flex-direction: column;">
+      <div id="chat-messages" style="flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+        <% if (!messages || !messages.length) { %>
+        <div class="empty" style="margin: auto;">No messages yet. Say hello or describe what you want to build.</div>
+        <% } else { %>
+        <% for (const msg of messages) { %>
+        <div class="chat-msg <%= msg.role %>" style="margin-left: <%= msg.role === 'user' ? 'auto' : '0' %>; max-width: 75%;">
+          <div class="chat-bubble">
+            <% if (msg.role === 'user') { %>
+            <span class="chat-meta">You</span>
+            <% } else if (msg.role === 'assistant') { %>
+            <span class="chat-meta"><%= msg.agent_role || 'Team' %> <%= msg.agent_role ? '·' : '' %> <span class="badge" style="font-size:10px;"><%= msg.role %></span></span>
+            <% } else { %>
+            <span class="chat-meta">System</span>
+            <% } %>
+            <div class="chat-body"><%= msg.content %></div>
+            <span class="chat-time" style="font-size:11px; color: var(--muted); display:block; margin-top:4px;"><%= String(msg.created_at || '').slice(11, 16) %></span>
+          </div>
+        </div>
+        <% } %>
+        <% } %>
+      </div>
+      <div id="chat-typing" style="display:none; padding: 8px 16px; font-size:13px; color: var(--muted); font-style: italic;">Team is typing…</div>
+    </div>
+
+    <div class="card" style="margin-top: 0;">
+      <form id="chat-form" style="display: flex; gap: 8px; margin-bottom: 12px;">
+        <input
+          type="text"
+          id="chat-input"
+          name="content"
+          placeholder="e.g. “Build a reading list app” or “What’s the status?”"
+          autocomplete="off"
+          style="flex: 1; min-width: 0;"
+        />
+        <button type="submit" class="button" id="chat-send">Send</button>
+      </form>
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
+        <button type="button" class="button secondary small" onclick="sendQuick('Build a personal reading list web app')">Build reading list</button>
+        <button type="button" class="button secondary small" onclick="sendQuick('Status')">Check status</button>
+        <button type="button" class="button secondary small" onclick="sendQuick('List open tickets')">Open tickets</button>
+      </div>
+    </div>
+  </div>
+
+  <div style="flex: 0 0 340px; min-width: 0;">
+    <div class="card" style="margin-bottom: 16px;">
+      <h3 style="font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 12px;">Quick actions</h3>
+      <ul style="list-style: none; padding: 0; margin: 0;">
+        <li style="margin-bottom: 8px;">
+          <button type="button" class="button secondary small" style="width: 100%; text-align: left;" onclick="sendQuick('Build a personal reading list web app')">▶ Start a new build</button>
+        </li>
+        <li style="margin-bottom: 8px;">
+          <button type="button" class="button secondary small" style="width: 100%; text-align: left;" onclick="sendQuick('What is the current status of all agents and tickets?')">📊 Check team status</button>
+        </li>
+        <li style="margin-bottom: 8px;">
+          <button type="button" class="button secondary small" style="width: 100%; text-align: left;" onclick="window.location.href='/build'">🏗 Build lab</button>
+        </li>
+        <li style="margin-bottom: 8px;">
+          <button type="button" class="button secondary small" style="width: 100%; text-align: left;" onclick="window.location.href='/tickets'">🎫 Ticket board</button>
+        </li>
+        <li style="margin-bottom: 8px;">
+          <button type="button" class="button secondary small" style="width: 100%; text-align: left;" onclick="window.location.href='/agents'">🤖 Agent team</button>
+        </li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3 style="font-size: 14px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 12px;">How to use</h3>
+      <ul style="list-style: none; padding: 0; margin: 0; font-size: 13px; color: var(--muted);">
+        <li style="margin-bottom: 8px;"><strong>Start a build:</strong> “Build a reading list app with add, list, and delete features.”</li>
+        <li style="margin-bottom: 8px;"><strong>Check status:</strong> “What’s the status?” or “Are any agents blocked?”</li>
+        <li style="margin-bottom: 8px;"><strong>Open tickets:</strong> “List open tickets.”</li>
+        <li style="margin-bottom: 0;">All messages and build triggers are saved to the conversation log.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script>
+const chatForm = document.getElementById('chat-form');
+const chatInput = document.getElementById('chat-input');
+const chatSend = document.getElementById('chat-send');
+const chatMessages = document.getElementById('chat-messages');
+const chatTyping = document.getElementById('chat-typing');
+
+function scrollToBottom() {
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function addMessage(role, content, agentRole, createdAt) {
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + role;
+  div.style.marginLeft = role === 'user' ? 'auto' : '0';
+  div.style.maxWidth = '75%';
+  const meta = role === 'user' ? 'You' : (agentRole || 'Team');
+  const badge = role === 'assistant' ? ` <span class="badge" style="font-size:10px;">${role}</span>` : '';
+  div.innerHTML = `
+    <div class="chat-bubble">
+      <span class="chat-meta">${meta}${badge}</span>
+      <div class="chat-body">${escapeHtml(content)}</div>
+      <span class="chat-time" style="font-size:11px; color: var(--muted); display:block; margin-top:4px;">${createdAt || new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+    </div>
+  `;
+  chatMessages.appendChild(div);
+  scrollToBottom();
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+async function loadMessages() {
+  try {
+    const res = await fetch('/api/chat');
+    const data = await res.json();
+    chatMessages.innerHTML = '';
+    (data.messages || []).forEach((msg) => {
+      addMessage(msg.role, msg.content, msg.agent_role, String(msg.created_at || '').slice(11, 16));
+    });
+    scrollToBottom();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+async function sendMessage(content) {
+  chatSend.disabled = true;
+  chatSend.textContent = 'Sending…';
+  chatTyping.style.display = 'block';
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ content }),
+    });
+    const data = await res.json();
+    if (data.user_message) {
+      addMessage('user', data.user_message.content, null, String(data.user_message.created_at || '').slice(11, 16));
+    }
+    if (data.assistant_message) {
+      addMessage('assistant', data.assistant_message, 'system', String(new Date().toISOString()).slice(11, 16));
+    }
+    if (data.workflow_id) {
+      // Small badge/link could go here; reload to show workflow links in messages
+      setTimeout(loadMessages, 800);
+    }
+  } catch (e) {
+    addMessage('assistant', 'Sorry, I could not send your message. Please try again.', 'system');
+  } finally {
+    chatSend.disabled = false;
+    chatSend.textContent = 'Send';
+    chatInput.value = '';
+    chatTyping.style.display = 'none';
+  }
+}
+
+function sendQuick(text) {
+  chatInput.value = text;
+  sendMessage(text);
+}
+
+chatForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const content = chatInput.value.trim();
+  if (!content) return;
+  sendMessage(content);
+});
+
+// Load on page load
+loadMessages();
+
+// Poll for new messages every 3 seconds while on this page
+let pollTimer = setInterval(loadMessages, 3000);
+</script>
+<%- include("partials/footer") %>

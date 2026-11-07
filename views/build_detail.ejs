@@ -15,13 +15,53 @@
 <% if (workflow.status !== "done" && workflow.status !== "failed") { %>
 <div class="card" style="margin-top: 18px;">
   <p><span class="spinner"></span> The build team is working. This page refreshes automatically.</p>
-  <p class="small muted">PM → architect → team lead → developers → tech lead → QA (looping on failures). This can take several minutes.</p>
+  <p class="small muted">PM → architect → team lead → developers → tech lead → QA → devops (looping on failures). This can take several minutes.</p>
+
+  <!-- Progress bar -->
+  <div style="margin-top: 14px;">
+    <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+      <span class="small muted" id="phase-label"><%= phaseLabel %></span>
+      <span class="small muted" id="iter-label">
+        <% if (iteration > 0) { %>Iteration <%= iteration %>/<%= maxIterations %><% } else { %>—<% } %>
+      </span>
+    </div>
+    <div class="progress-bar">
+      <div class="progress-fill" id="progress-fill" style="width: 0%;"></div>
+    </div>
+    <div class="progress-steps" style="margin-top: 10px;">
+      <% const phases = ['starting','architect','team_review','developers','tech_lead','qa','devops']; %>
+      <% const phaseNames = ['Start','Architect','Team Lead','Developers','Tech Lead','QA','DevOps']; %>
+      <% phases.forEach((p, idx) => { %>
+      <span class="progress-step" data-phase="<%= p %>">
+        <%= phaseNames[idx] %>
+      </span>
+      <% }); %>
+    </div>
+  </div>
 </div>
 <script>
+  const phases = ['starting','architect','team_review','developers','tech_lead','qa','devops'];
+  function updateProgress(phase, iteration, maxIterations) {
+    const idx = phases.indexOf(phase);
+    const pct = idx >= 0 ? Math.round(((idx + 1) / phases.length) * 100) : 0;
+    document.getElementById('progress-fill').style.width = pct + '%';
+    document.querySelectorAll('.progress-step').forEach((el, i) => {
+      el.classList.toggle('done', i < idx);
+      el.classList.toggle('active', i === idx);
+    });
+    if (iteration > 0) {
+      document.getElementById('iter-label').textContent = 'Iteration ' + iteration + '/' + maxIterations;
+    }
+  }
+  // Initial render
+  updateProgress('<%= phase %>', <%= iteration %>, <%= maxIterations %>);
+
   const timer = setInterval(async () => {
     try {
       const res = await fetch("/build/<%= workflow.id %>/status");
       const data = await res.json();
+      if (data.phaseLabel) document.getElementById('phase-label').textContent = data.phaseLabel;
+      if (data.phase) updateProgress(data.phase, data.iteration, data.maxIterations);
       if (data.status === "done" || data.status === "failed") {
         clearInterval(timer);
         window.location.reload();

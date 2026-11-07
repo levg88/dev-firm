@@ -132,6 +132,12 @@ export class Settings {
   githubAssigneeLogins: Record<string, string>;
   githubToken: string;
 
+  /** Per-role model overrides (e.g. DEV_FIRM_MODEL_ARCHITECT). Falls back to `model`. */
+  roleModels: Record<string, string>;
+
+  /** Per-role base URL overrides (e.g. DEV_FIRM_OLLAMA_BASE_URL_ARCHITECT for multiple Ollama instances). */
+  roleBaseUrls: Record<string, string>;
+
   constructor(values: {
     home: string;
     provider: Provider;
@@ -162,6 +168,8 @@ export class Settings {
     githubDefaultAssignee: string;
     githubAssigneeLogins: Record<string, string>;
     githubToken: string;
+    roleModels?: Record<string, string>;
+    roleBaseUrls?: Record<string, string>;
   }) {
     this.home = values.home;
     this.dataDir = values.home;
@@ -196,6 +204,8 @@ export class Settings {
     this.githubDefaultAssignee = values.githubDefaultAssignee;
     this.githubAssigneeLogins = values.githubAssigneeLogins;
     this.githubToken = values.githubToken;
+    this.roleModels = values.roleModels ?? {};
+    this.roleBaseUrls = values.roleBaseUrls ?? {};
   }
 
   static load(): Settings {
@@ -275,9 +285,57 @@ export class Settings {
         process.env.GITHUB_DEFAULT_ASSIGNEE || process.env.DEV_FIRM_GITHUB_DEFAULT_ASSIGNEE || '',
       githubAssigneeLogins,
       githubToken,
+      roleModels: this._parseRoleModels(),
+      roleBaseUrls: this._parseRoleBaseUrls(),
     });
     settings.ensureDirs();
     return settings;
+  }
+
+  /**
+   * Parse per-role model overrides from env vars like DEV_FIRM_MODEL_ARCHITECT.
+   * Role names are uppercased with underscores (e.g. BACKEND_DEVELOPER).
+   */
+  private static _parseRoleModels(): Record<string, string> {
+    const roles = [
+      'product_manager',
+      'architect',
+      'team_lead',
+      'backend_developer',
+      'frontend_developer',
+      'tech_lead',
+      'qa',
+    ];
+    const out: Record<string, string> = {};
+    for (const role of roles) {
+      const envKey = `DEV_FIRM_MODEL_${role.toUpperCase()}`;
+      const value = process.env[envKey]?.trim();
+      if (value) out[role] = value;
+    }
+    return out;
+  }
+
+  /**
+   * Parse per-role base URL overrides from env vars like DEV_FIRM_OLLAMA_BASE_URL_ARCHITECT.
+   * Enables multiple Ollama instances on different ports for different roles.
+   */
+  private static _parseRoleBaseUrls(): Record<string, string> {
+    const roles = [
+      'product_manager',
+      'architect',
+      'team_lead',
+      'backend_developer',
+      'frontend_developer',
+      'tech_lead',
+      'qa',
+    ];
+    const out: Record<string, string> = {};
+    for (const role of roles) {
+      const envKey = `DEV_FIRM_OLLAMA_BASE_URL_${role.toUpperCase()}`;
+      const value = process.env[envKey]?.trim();
+      if (value) out[role] = cleanUrl(value);
+    }
+    return out;
   }
 
   ensureDirs(): void {
@@ -370,6 +428,20 @@ export class Settings {
       }
     }
     if ('github_token' in values) this.githubToken = values.github_token.trim();
+    if ('role_models' in values) {
+      try {
+        this.roleModels = JSON.parse(values.role_models);
+      } catch {
+        // ignore malformed
+      }
+    }
+    if ('role_base_urls' in values) {
+      try {
+        this.roleBaseUrls = JSON.parse(values.role_base_urls);
+      } catch {
+        // ignore malformed
+      }
+    }
   }
 
   get githubConfigured(): boolean {
@@ -402,6 +474,8 @@ export class Settings {
       github_auto_create: this.githubAutoCreateProject ? 'true' : 'false',
       github_default_assignee: this.githubDefaultAssignee,
       github_assignees_json: JSON.stringify(this.githubAssigneeLogins),
+      role_models: JSON.stringify(this.roleModels),
+      role_base_urls: JSON.stringify(this.roleBaseUrls),
     };
     if (options.includeSecrets) {
       values.api_key = this.apiKey;
@@ -456,6 +530,8 @@ export class Settings {
       github_project_number: this.githubProjectNumber,
       github_default_assignee: this.githubDefaultAssignee,
       github_token_hint: this.githubTokenHint,
+      role_models: this.roleModels,
+      role_base_urls: this.roleBaseUrls,
     };
   }
 
