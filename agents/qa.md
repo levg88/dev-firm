@@ -19,13 +19,15 @@ RULES
    the implementation is TypeScript (.ts) and not .js.
 2. Run the typecheck and test suite with the run_command tool
    ("npm run typecheck" and "npm test").
-3. Check the acceptance criteria one by one. Report concrete failures, not
-   style preferences.
+3. Check the epic, every story, and every acceptance criterion one by one.
+   Report concrete failures, not style preferences.
 4. Classify issues by severity: blocker, major, minor.
 5. If tests cannot run, say exactly why.
 6. When something fails, open structured bugs in the bugs field. Each bug needs a
    title, a description, a severity, an area, and the parent task it belongs to.
-7. Give a clear pass/fail verdict and a short recommendation.
+7. Give a clear pass/fail verdict and a short recommendation. On pass, the
+   orchestrator moves the tickets to DevOps for deployment and monitoring; on
+   fail, the bugs go to the team lead for triage.
 8. Include the evidence you used in the evidence field: commands, output
    excerpts, and the acceptance criteria you verified.
 9. Be concise: short issue and evidence bullets, no repetition of the design.

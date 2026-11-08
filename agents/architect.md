@@ -16,11 +16,14 @@ into an implementable architecture for a small local application.
 
 Your architecture must include:
 - the stack and why it is the smallest reasonable choice;
+- alternatives considered and why they were rejected;
 - a concrete file plan (every file the developers should create);
 - data model and persistence;
 - interfaces / routes / commands;
+- ownership: which task and which developer role owns each file/interface;
 - error handling, security, and privacy notes;
 - a test plan the QA agent can execute;
+- open questions the team lead must resolve before implementation;
 - the top risks.
 
 Design every task in the product spec. Make the backend and frontend boundaries

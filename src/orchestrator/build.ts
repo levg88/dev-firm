@@ -42,6 +42,7 @@ import { createTracker } from '../tracker';
 import type { Ticket, TicketStatus, Tracker } from '../tracker';
 import { commitAs, ensureGitRepo } from './identities';
 import { BuildStatusReporter } from './status';
+import { logPipelineError } from './buglog';
 
 export interface BuildResult {
   workflow_id: number;
@@ -175,6 +176,7 @@ export class BuildService {
       };
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
+      this._logError(workflowId, workspace, 'workflow', err);
       db.withSession(this.settings.dbPath, (conn) =>
         db.updateWorkflow(conn, workflowId, {
           status: 'failed',
@@ -188,6 +190,20 @@ export class BuildService {
       reporter?.stop();
       this.statusReporters.delete(workflowId);
     }
+  }
+
+  /**
+   * Record a stage failure in the bug inbox so the fixer can investigate it.
+   * Logging is best-effort and never throws into the build.
+   */
+  private _logError(
+    workflowId: number,
+    workspace: string,
+    stage: string,
+    error: unknown,
+  ): void {
+    const message = error instanceof Error ? error.message : String(error);
+    logPipelineError(this.settings, { workflowId, stage, message, workspace });
   }
 
   /**
@@ -293,6 +309,7 @@ export class BuildService {
         });
         architecture = architectureSchema.parse(archResult.data ?? {});
       } catch (error) {
+        this._logError(workflowId, workspace, 'architect', error);
         if (!architecture.markdown) throw error;
         break;
       }
@@ -326,6 +343,7 @@ export class BuildService {
         });
         designReview = designReviewSchema.parse(reviewResult.data ?? {});
       } catch (error) {
+        this._logError(workflowId, workspace, 'team_lead_review', error);
         const message = error instanceof Error ? error.message : String(error);
         designReview = designReviewSchema.parse({
           approved: true,
@@ -444,6 +462,7 @@ export class BuildService {
             const report = developerReportSchema.parse(result.data ?? {});
             devResults.push({ role, name: devName, group: chunk, report });
           } catch (error) {
+            this._logError(workflowId, workspace, `developer_${devName}`, error);
             const message = error instanceof Error ? error.message : String(error);
             this._artifact(
               workflowId,
@@ -526,6 +545,7 @@ export class BuildService {
         });
         review = techLeadReviewSchema.parse(result.data ?? {});
       } catch (error) {
+        this._logError(workflowId, workspace, 'tech_lead_review', error);
         const message = error instanceof Error ? error.message : String(error);
         review = techLeadReviewSchema.parse({
           verdict: true,
@@ -596,6 +616,7 @@ export class BuildService {
         });
         qa = qaReportSchema.parse(result.data ?? {});
       } catch (error) {
+        this._logError(workflowId, workspace, 'qa', error);
         const message = error instanceof Error ? error.message : String(error);
         qa = qaReportSchema.parse({
           passed: false,
@@ -652,6 +673,7 @@ export class BuildService {
             tasks_completed: ['devops'],
           });
         } catch (error) {
+          this._logError(workflowId, workspace, 'devops', error);
           const message = error instanceof Error ? error.message : String(error);
           lastDeploy = devopsReportSchema.parse({
             summary: `DevOps deployment failed: ${message}`,
@@ -750,6 +772,7 @@ export class BuildService {
         );
         triage = bugTriageSchema.parse(result.data ?? {});
       } catch (error) {
+        this._logError(workflowId, workspace, 'bug_triage', error);
         const message = error instanceof Error ? error.message : String(error);
         triage = bugTriageSchema.parse({
           summary: `Team lead triage unavailable; defaulting bugs to backend. ${message}`,

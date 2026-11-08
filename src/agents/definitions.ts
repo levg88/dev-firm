@@ -56,6 +56,8 @@ export interface AgentDefinition {
   schema: AgentSchemaName;
   temperature: number;
   maxTokens: number | null;
+  /** Shared skill ids explicitly opted into by this agent. */
+  skills: string[];
   systemPrompt: string;
   taskTemplate: string;
   sourcePath: string;
@@ -88,7 +90,7 @@ export function agentSearchDirs(options: LoadAgentOptions = {}): string[] {
 }
 
 /** Split YAML-ish frontmatter from the markdown body. */
-function splitFrontmatter(text: string): { data: Record<string, string>; body: string } {
+export function splitFrontmatter(text: string): { data: Record<string, string>; body: string } {
   const match = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(text);
   if (!match) return { data: {}, body: text.trim() };
 
@@ -167,6 +169,14 @@ function maxTokensField(data: Record<string, string>): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/** Parse a comma/whitespace-separated list of skill ids. */
+function skillListField(data: Record<string, string>): string[] {
+  return (data.skills ?? '')
+    .split(/[,\s]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 function schemaField(data: Record<string, string>, sourcePath: string): AgentSchemaName {
   const value = (data.schema ?? 'none').trim().toLowerCase();
   if (!(AGENT_SCHEMA_NAMES as readonly string[]).includes(value)) {
@@ -201,6 +211,7 @@ export function parseAgentMarkdown(text: string, sourcePath = '<memory>'): Agent
     schema: schemaField(data, sourcePath),
     temperature: numberField(data, 'temperature', 0.2),
     maxTokens: maxTokensField(data),
+    skills: skillListField(data),
     systemPrompt,
     taskTemplate,
     sourcePath,

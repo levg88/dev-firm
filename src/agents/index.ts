@@ -12,12 +12,26 @@ export {
   parseAgentMarkdown,
   renderAgentTask,
   renderTaskTemplate,
+  splitFrontmatter,
 } from './definitions';
 export type {
   AgentDefinition,
   AgentSchemaName,
   LoadAgentOptions,
 } from './definitions';
+export {
+  defaultSkillsDir,
+  getSkill,
+  loadSkills,
+  parseSkillFile,
+  parseSkillMarkdown,
+  renderAgentSkills,
+  resolveAgentSkills,
+  skillDirsForAgentDir,
+  skillSearchDirs,
+  systemPromptFor,
+} from './skills';
+export type { LoadSkillsOptions, SkillDefinition } from './skills';
 export { schemaForAgent } from './schema';
 export {
   architectureSchema,

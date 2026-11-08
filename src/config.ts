@@ -333,6 +333,7 @@ export class Settings {
       'frontend_developer',
       'tech_lead',
       'qa',
+      'devops',
     ];
     const out: Record<string, string> = {};
     for (const role of roles) {
@@ -356,6 +357,7 @@ export class Settings {
       'frontend_developer',
       'tech_lead',
       'qa',
+      'devops',
     ];
     const out: Record<string, string> = {};
     for (const role of roles) {

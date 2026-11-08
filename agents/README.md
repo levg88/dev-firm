@@ -41,6 +41,16 @@ Turn this brief into a build-ready product specification:
 | `workflow` | no | Workflow label written to `agent_runs`; defaults to `id`. |
 | `temperature` | no | Sampling temperature; defaults to `0.2`. |
 | `max_tokens` | no | Per-call token cap; `null` uses the global setting. |
+| `skills` | no | Comma-separated shared skill ids to opt into, in addition to skills whose `agents` field targets this agent. |
+
+## Shared skills
+
+Reusable instructions live in `skills/<id>/SKILL.md` and are appended to the
+agent's system prompt at load time. A skill applies when its `agents` field lists
+the agent id (or `*`), or when the agent's `skills` frontmatter lists the skill.
+See [`skills/README.md`](../skills/README.md) for the format, resolution order,
+and the current skill matrix. Editing a skill changes the next agent run without
+a rebuild or restart.
 
 ## Sections
 
@@ -68,3 +78,10 @@ bundled definition. `DEV_FIRM_AGENTS_DIR` changes the override directory.
 | `tech_lead` | `tech_lead` | `tech_lead_review` |
 | `qa` | `qa` | `qa_report` |
 | `devops` | `devops` | `none` (free text) |
+| `fixer` | `fixer` | `none` (free text) |
+
+The build pipeline invokes `product_manager`, `architect`, `team_lead`,
+`backend_developer`, `frontend_developer`, `tech_lead`, `qa`, and `devops`
+automatically on the corresponding ticket transition. `team_lead_triage` runs
+when QA opens bugs. `fixer` is a harness agent invoked by `/fix-bugs` against
+`Bugs/_inbox/`.

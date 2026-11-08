@@ -10,6 +10,12 @@ This repo has a `Context/` folder holding **domain knowledge** (agent roles, del
 - **Never edit `Memory.md` files directly** — only the Librarian agent does (`/curate-context`). At session end, if `_inbox/` has unprocessed files, suggest running `/curate-context`.
 - Never write secrets or credentials into `Context/`.
 
+## Architecture and Workflow
+
+- `ARCHITECTURE.md` — agents, autonomy model, handoff contracts, shared skills, persistence, extension points.
+- `AGENTIC_WORKFLOW.md` — stage-by-stage triggers, gates, ticket lifecycle, loops, failure playbook.
+- `skills/<id>/SKILL.md` — reusable instructions injected into agent system prompts; see `skills/README.md`.
+
 ## Bug Fix Pipeline
 
 While working, if an agent encounters an error or bug, log it to `Bugs/_inbox/` (format in `Bugs/_inbox/README.md`) just like the learning phase logs findings to `Context/_inbox/`. Every entry must be tagged `(provider / OS, YYYY-MM-DD)` or `(General)`.

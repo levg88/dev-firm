@@ -1,17 +1,24 @@
 # Dev Firm
 
 A small, local-first **boutique software development firm run by agents**. Describe an
-application and a seven-role team takes it from brief to tested code through a real
-delivery flow:
+application and an eight-role delivery team plus a fixer takes it from brief to deployed,
+monitored code through a real delivery flow:
 
-**Product Manager → Architect → Team Lead → Backend / Frontend Developers → Tech Lead → QA**
+**Product Manager → Architect → Team Lead → Backend / Frontend Developers → Tech Lead → QA → DevOps**
 
 The firm first validates the target project (typecheck, build, tests), then the product
 manager writes the PRD and a task breakdown, the architect writes the design documents,
 and the team lead reviews the design and routes every task to the right developer. The
 developers implement and hand off to the tech lead, who rejects back to the developer or
-approves to QA. QA either closes the tickets with evidence or opens linked bugs for
-another loop. The delivery loop repeats until QA passes or the iteration limit is reached.
+approves to QA. QA either sends the tickets to DevOps with evidence or opens linked bugs
+for another loop. DevOps owns CI/CD, deployment, monitoring, and logging. The delivery
+loop repeats until QA passes or the iteration limit is reached. A separate **fixer** agent
+consumes logged pipeline defects from `Bugs/_inbox/`.
+
+The full role and autonomy model is documented in [`ARCHITECTURE.md`](ARCHITECTURE.md),
+and the stage-by-stage contracts, triggers, and loops in
+[`AGENTIC_WORKFLOW.md`](AGENTIC_WORKFLOW.md). Reusable cross-team instructions live in
+[`skills/`](skills/README.md).
 
 Every task and bug lives on a local **ticket board** and is mirrored to **GitHub Issues +
 a GitHub Project** when sync is enabled. Every agent call and artifact is recorded in a
@@ -58,9 +65,14 @@ way with a distinct author identity for each role.
                              │ approve
                     ┌────────▼─────────┐
                     │       QA         │  acceptance checks + tests
-                    │      agent       │  pass → close with evidence
-                    └────────┬─────────┘  fail → linked bugs → team lead
-                             │                    → developer loop
+                    │      agent       │  pass → DevOps; fail → bugs
+                    └────────┬─────────┘  → team lead → developer loop
+                             │ pass
+                    ┌────────▼─────────┐
+                    │      DevOps      │  CI/CD, deploy, health check,
+                    │      agent       │  monitoring + logging
+                    └────────┬─────────┘
+                             │
                  ┌───────────▼────────────┐
                  │ SQLite + ticket board  │  workflows, tickets, events,
                  │ + GitHub Projects sync │  artifacts, generated files
@@ -78,6 +90,8 @@ way with a distinct author identity for each role.
 | **Frontend Developer** | Implements the UI, templates, components, client behaviour, and styling. | Working files, tests run, implementation report |
 | **Tech Lead** | Reviews delivered code against the PRD and design. Rejections go back to the developer. | Review verdict, summary, blocking issues |
 | **QA** | Verifies acceptance criteria, runs the test suite, and opens structured bugs. | Pass/fail report, bugs, evidence, recommendation |
+| **DevOps** | Checks build instructions, owns CI/CD, deploys verified builds, and starts monitoring/logging from app startup. | Pipeline status, deployments, health evidence, known issues |
+| **Fixer** | Investigates defects logged in `Bugs/_inbox/`, finds root cause, fixes or spawns a developer, and re-runs tests. | Root cause, fixes, tests run, follow-ups |
 
 ### Delivery flow
 
@@ -87,9 +101,11 @@ Architect design                   → attach to tasks, assign team lead
 Team lead review                   → approve + route tasks; reject → architect (max 2 rounds)
 Developer implements               → assign tech lead
 Tech lead review                   → reject → developer; approve → QA
-QA verifies                        → pass → close tasks with evidence
+QA verifies                        → pass → assign DevOps
                                    → fail → open linked bugs → team lead triage
                                              → developer → tech lead → QA ...
+DevOps deploys                     → final typecheck/build/test, health check,
+                                     monitoring + logging, close with evidence
 ```
 
 The loop is bounded by **Max delivery iterations** (`DEV_FIRM_MAX_ITERATIONS`, default
@@ -234,6 +250,7 @@ wizard, the stored configuration takes precedence.
 | `DEV_FIRM_HEURISTIC_FALLBACK` | `true` | Fall back to offline output if a model call fails |
 | `DEV_FIRM_HOME` | `./data` | Database, workspaces, run artifacts |
 | `DEV_FIRM_AGENTS_DIR` | `<home>/agents` | Directory of Markdown agent overrides |
+| `DEV_FIRM_SKILLS_DIR` | — | Extra shared-skill override directory (highest priority) |
 | `DEV_FIRM_HOST` | `127.0.0.1` | Bind address |
 | `DEV_FIRM_PORT` | `8766` | Bind port |
 | `DEV_FIRM_TICKET_PREFIX` | `CAREER` | Prefix for local ticket keys |
@@ -360,10 +377,15 @@ agents/
   tech-lead.md            code review
   qa.md                   verification
   devops.md               CI/CD + deployment
+  fixer.md                bug investigation + fix
   README.md               file format and override rules
 
+skills/
+  <id>/SKILL.md           reusable instructions shared by agents
+  README.md               format, targeting, resolution, current matrix
 src/agents/
   definitions.ts      Markdown loader (frontmatter, sections, overrides)
+  skills.ts           shared-skill loader + system-prompt injection
   schema.ts           maps `schema:` names to Zod contracts
   product_manager.ts  PM wrapper
   architect.ts        design wrapper
@@ -397,6 +419,11 @@ To add a role:
 To change a prompt without touching code, edit the `.md` file. To override an agent
 per installation, drop a same-named file in `<home>/agents` (or set
 `DEV_FIRM_AGENTS_DIR`); it replaces the bundled definition by `id`.
+
+To add a shared skill, create `skills/<id>/SKILL.md` and target agents with its
+`agents:` frontmatter (or opt in from an agent's `skills:` field). Skills are
+resolved at load time and appended to the system prompt. Override a skill by
+dropping a same-id folder in `<home>/skills` or `DEV_FIRM_SKILLS_DIR`.
 
 ### Add a provider
 

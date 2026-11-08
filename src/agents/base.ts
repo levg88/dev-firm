@@ -28,6 +28,7 @@ import {
 } from '../llm/base';
 import { saveAgentStep, listAgentSteps } from '../db';
 import type { AgentDefinition } from './definitions';
+import { skillDirsForAgentDir, systemPromptFor } from './skills';
 
 /**
  * Error thrown when an agent run fails unrecoverably (LLM error, invalid JSON
@@ -783,7 +784,9 @@ export function agentFromDefinition(
     {
       name: definition.id,
       role: definition.role,
-      systemPrompt: definition.systemPrompt,
+      systemPrompt: systemPromptFor(definition, {
+        dirs: skillDirsForAgentDir(settings.agentsDir),
+      }),
       temperature: definition.temperature,
       maxTokens: definition.maxTokens,
     },

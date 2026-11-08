@@ -9,6 +9,7 @@ import path from 'node:path';
 import { Settings, defaultBaseUrlFor, defaultModelFor } from './config';
 import * as db from './db';
 import { loadAgentDefinitions } from './agents/definitions';
+import { skillDirsForAgentDir, systemPromptFor } from './agents/skills';
 import { BuildService } from './orchestrator/build';
 import { buildLlm, MockClient } from './llm';
 import { applyStoredSettings } from './runtime';
@@ -160,14 +161,17 @@ function cmdAgents(settings: Settings, options: Record<string, string | boolean>
         `Unknown agent. Choose: ${definitions.map((definition) => definition.id).join(', ')}`,
       );
     }
-    console.log(found.systemPrompt);
+    console.log(
+      systemPromptFor(found, { dirs: skillDirsForAgentDir(settings.agentsDir) }),
+    );
     return 0;
   }
   for (const definition of definitions) {
     const summary =
       definition.description || (definition.systemPrompt.split('\n')[0] ?? '');
+    const skills = definition.skills.length ? ` skills:${definition.skills.join(',')}` : '';
     console.log(
-      `${definition.id.padEnd(20)} ${definition.name.padEnd(20)} ${summary.slice(0, 100)}`,
+      `${definition.id.padEnd(20)} ${definition.name.padEnd(20)} ${summary.slice(0, 100)}${skills}`,
     );
   }
   return 0;
