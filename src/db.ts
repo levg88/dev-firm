@@ -741,3 +741,9 @@ export function listRecentChatMessages(
     .all(limit) as Row[];
   return rows.map(chatMessageFromRow).reverse();
 }
+
+/** Delete all chat messages (reset the conversation). */
+export function clearChatMessages(conn: Conn): number {
+  const info = conn.prepare('DELETE FROM chat_messages').run();
+  return Number(info.changes ?? 0);
+}

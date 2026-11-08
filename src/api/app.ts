@@ -590,6 +590,11 @@ export function createApp(initialSettings?: Settings): express.Express {
     res.json({ messages });
   });
 
+  app.delete('/api/chat', (_req, res) => {
+    const cleared = db.withSession(settings.dbPath, (conn) => db.clearChatMessages(conn));
+    res.json({ cleared });
+  });
+
   app.get('/api/repos', (_req, res) => {
     try {
       const catalog = new RepoCatalog(settings.reposDir);

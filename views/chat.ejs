@@ -46,6 +46,7 @@
           style="flex: 1; min-width: 0;"
         />
         <button type="submit" class="button" id="chat-send">Send</button>
+        <button type="button" class="button secondary small" id="chat-clear" onclick="clearChat()">Clear</button>
       </form>
       <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;">
         <button type="button" class="button secondary small" onclick="sendQuick('Add a dark mode toggle to career-firm')">Add a feature</button>
@@ -148,6 +149,16 @@ function addMessage(role, content, agentRole, createdAt) {
   `;
   chatMessages.appendChild(div);
   scrollToBottom();
+}
+
+async function clearChat() {
+  if (!confirm('Clear the conversation history?')) return;
+  try {
+    await fetch('/api/chat', { method: 'DELETE' });
+    await loadMessages();
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 async function loadMessages() {
