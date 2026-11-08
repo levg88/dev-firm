@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/context_router.py 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}
