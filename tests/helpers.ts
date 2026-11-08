@@ -20,6 +20,7 @@ const MANAGED_ENV = [
   'DEV_FIRM_MODEL',
   'DEV_FIRM_HEURISTIC_FALLBACK',
   'DEV_FIRM_SETUP_COMPLETE',
+  'DEV_FIRM_REPOS_DIR',
   'OPENAI_API_KEY',
   'ANTHROPIC_API_KEY',
   'OPENCODE_API_KEY',
@@ -52,6 +53,7 @@ export function makeSettings(options: SettingsOptions = {}): Settings {
   process.env.DEV_FIRM_MODEL = options.provider ?? 'mock';
   process.env.DEV_FIRM_HEURISTIC_FALLBACK = 'true';
   process.env.DEV_FIRM_SETUP_COMPLETE = options.setupComplete === false ? 'false' : 'true';
+  process.env.DEV_FIRM_REPOS_DIR = path.join(home, 'repos');
   delete process.env.OPENAI_API_KEY;
   delete process.env.ANTHROPIC_API_KEY;
   delete process.env.OPENCODE_API_KEY;

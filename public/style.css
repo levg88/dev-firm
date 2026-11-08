@@ -487,6 +487,32 @@ table.plain th { width: 34%; text-transform: none; letter-spacing: 0; font-size:
 }
 .chat-msg.role-system .chat-meta { color: var(--muted); }
 
+.chat-body a { color: inherit; text-decoration: underline; }
+.chat-msg.role-user .chat-body a { color: #dbe8ff; }
+.chat-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: rgba(15, 23, 42, .07);
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: .92em;
+}
+.chat-msg.role-user .chat-body code { background: rgba(255, 255, 255, .16); }
+.chat-body pre {
+  margin: 8px 0;
+  padding: 10px 12px;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 8px;
+  overflow-x: auto;
+  white-space: pre;
+}
+.chat-body pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font-size: .92em;
+}
+
 .chat-meta {
   font-size: 11px;
   font-weight: 700;

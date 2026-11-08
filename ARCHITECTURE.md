@@ -62,7 +62,7 @@ flowchart LR
 
 | Layer | Responsibility | Main code |
 |---|---|---|
-| Presentation | Setup, settings, build lab, ticket board, CLI | `src/api/`, `views/`, `src/cli.ts` |
+| Presentation | Setup, settings, build lab, ticket board, chat concierge, CLI | `src/api/`, `views/`, `src/cli.ts` |
 | Orchestration | Stage sequencing, gates, loops, status reporting, commits | `src/orchestrator/` |
 | Agent definitions | Role identity, prompt, task template, sampling, skill opt-ins | `agents/*.md` |
 | Shared skills | Cross-role standards injected into system prompts | `skills/*/SKILL.md` |
@@ -73,6 +73,23 @@ flowchart LR
 | Tracking | Local ticket board and GitHub mirror | `src/tracker/` |
 | Knowledge | Durable domain memory, router, inbox | `Context/` |
 | Defect loop | Bug inbox and fixer | `Bugs/`, `.opencode/agents/fixer.md` |
+
+### Chat concierge
+
+The **Chat** page is the human-facing entry point, separate from the delivery
+pipeline. `ChatService` (`src/chat/agent.ts`) is a tool-calling agent that keeps the
+conversation history and can:
+
+- resolve casual repository names to local git checkouts (`src/chat/repos.ts`) and
+  inspect their files and code (read-only);
+- query the firm's SQLite state — builds, tickets, agent runs, artifacts;
+- start a delivery run by creating a workflow with the resolved repository path and
+  a natural-language brief.
+
+It does not run the delivery stages itself. Once it calls the `start_build` tool, the
+normal `BuildService` orchestrator owns the workflow. Repository discovery is rooted at
+`reposDir` (`DEV_FIRM_REPOS_DIR`, default `~/Workspace`). The offline mock provider
+returns a deterministic fallback instead of pretending to reason.
 
 ## 3. Agent roster
 

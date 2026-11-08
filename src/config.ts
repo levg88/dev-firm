@@ -117,6 +117,36 @@ function cleanUrl(value: string): string {
   return value.trim().replace(/\/+$/, '');
 }
 
+/** True when `dir` directly contains at least one git checkout. */
+function hasGitCheckouts(dir: string): boolean {
+  try {
+    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return false;
+    return fs
+      .readdirSync(dir, { withFileTypes: true })
+      .some((entry) => entry.isDirectory() && fs.existsSync(path.join(dir, entry.name, '.git')));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Pick a sensible folder for local repositories. `DEV_FIRM_REPOS_DIR` wins;
+ * otherwise look next to the app, in `~/Workspace`, then in `<home>/repos`.
+ */
+export function defaultReposDir(home: string): string {
+  const explicit = process.env.DEV_FIRM_REPOS_DIR?.trim();
+  if (explicit) return path.resolve(explicit);
+  const candidates = [
+    path.resolve(process.cwd(), '..'),
+    path.resolve(process.env.HOME || home, 'Workspace'),
+    path.resolve(home, 'repos'),
+  ];
+  for (const candidate of candidates) {
+    if (hasGitCheckouts(candidate)) return candidate;
+  }
+  return path.resolve(home, 'repos');
+}
+
 /**
  * Application configuration: paths, provider/model selection, GitHub sync, and
  * per-role overrides. Loaded from environment + persisted DB settings.
@@ -128,6 +158,7 @@ export class Settings {
   storageDir: string;
   runsDir: string;
   agentsDir: string;
+  reposDir: string;
   provider: Provider;
   model: string;
   apiKey: string;
@@ -204,6 +235,7 @@ export class Settings {
     this.agentsDir = path.resolve(
       process.env.DEV_FIRM_AGENTS_DIR || path.join(values.home, 'agents'),
     );
+    this.reposDir = defaultReposDir(values.home);
     this.provider = values.provider;
     this.model = values.model;
     this.apiKey = values.apiKey;
@@ -426,6 +458,9 @@ export class Settings {
     if ('agents_dir' in values) {
       this.agentsDir = path.resolve(values.agents_dir.trim() || this.agentsDir);
     }
+    if ('repos_dir' in values) {
+      this.reposDir = path.resolve(values.repos_dir.trim() || this.reposDir);
+    }
     if ('setup_complete' in values) {
       this.setupComplete = asBool('setup_complete', this.setupComplete);
     }
@@ -498,6 +533,7 @@ export class Settings {
       host: this.host,
       port: String(this.port),
       agents_dir: this.agentsDir,
+      repos_dir: this.reposDir,
       setup_complete: this.setupComplete ? 'true' : 'false',
       ticket_prefix: this.ticketPrefix,
       github_enabled: this.githubEnabled ? 'true' : 'false',
@@ -549,6 +585,7 @@ export class Settings {
       db_path: this.dbPath,
       runs_dir: this.runsDir,
       agents_dir: this.agentsDir,
+      repos_dir: this.reposDir,
       temperature: this.temperature,
       max_tokens: this.maxTokens,
       max_agent_steps: this.maxAgentSteps,

@@ -174,6 +174,28 @@ data/
 The build page shows every agent call, token count, and artifact. The workflow runs in
 the background, so the page refreshes itself until the team is done.
 
+### Chat with the firm
+
+The **Chat** page is a conversational concierge, not a command menu. Talk to it the way
+you would talk to a senior engineer:
+
+- **Ask how something works:** “How does niw-tracker handle authentication?” The
+  concierge searches and reads the repository, then answers with real file paths.
+- **Give it a task:** “In career-firm, add a dark mode toggle to the settings page.”
+  It resolves the repo, turns your words into a brief, and starts the delivery team.
+- **Check the firm:** “What’s blocking the latest build?” or “Show me the open QA
+  tickets.” It reads the local build, ticket, and agent records.
+- **Compare codebases:** “Compare the architecture of career-firm and niw-tracker.”
+
+You do not need to prepare a structured brief or know the exact repository path. The
+concierge resolves casual names (`career firm`, `the tracker`, `niw`), asks one focused
+question when a request is genuinely ambiguous, and keeps the conversation history.
+It is a tool-calling agent: it can inspect local repositories, query the firm’s SQLite
+state, read artifacts, and start builds. Repository inspection is read-only.
+
+By default it looks for git checkouts in the folder next to the app or `~/Workspace`.
+Change that in **Settings → Repositories** or with `DEV_FIRM_REPOS_DIR`.
+
 ---
 
 ## CLI reference
@@ -250,6 +272,7 @@ wizard, the stored configuration takes precedence.
 | `DEV_FIRM_HEURISTIC_FALLBACK` | `true` | Fall back to offline output if a model call fails |
 | `DEV_FIRM_HOME` | `./data` | Database, workspaces, run artifacts |
 | `DEV_FIRM_AGENTS_DIR` | `<home>/agents` | Directory of Markdown agent overrides |
+| `DEV_FIRM_REPOS_DIR` | `~/Workspace` | Folder of local git checkouts the chat concierge can inspect/build |
 | `DEV_FIRM_SKILLS_DIR` | — | Extra shared-skill override directory (highest priority) |
 | `DEV_FIRM_HOST` | `127.0.0.1` | Bind address |
 | `DEV_FIRM_PORT` | `8766` | Bind port |

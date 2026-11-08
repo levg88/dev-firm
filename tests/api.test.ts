@@ -25,7 +25,7 @@ describe('web app', () => {
   it('renders pages and runs a mock build', async () => {
     const app = createApp(makeSettings());
     const agent = request(app);
-    for (const path of ['/', '/build', '/runs', '/settings']) {
+    for (const path of ['/', '/build', '/runs', '/settings', '/chat']) {
       const response = await agent.get(path);
       expect(response.status).toBe(200);
     }

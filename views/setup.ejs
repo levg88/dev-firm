@@ -85,6 +85,21 @@
   </section>
 
   <section class="card" style="margin-top: 16px;">
+    <h2 style="margin-top: 0;">Repositories</h2>
+    <p class="small muted">
+      The chat concierge looks here when you name a repository (for example
+      “add dark mode to career-firm”). It also uses this folder as the default
+      place to start builds. Point it at the folder that contains your local
+      git checkouts.
+    </p>
+    <div class="field">
+      <label for="repos_dir">Local repositories folder</label>
+      <input id="repos_dir" type="text" name="repos_dir" value="<%= settings.reposDir %>"
+             placeholder="/Users/you/Workspace">
+    </div>
+  </section>
+
+  <section class="card" style="margin-top: 16px;">
     <h2 style="margin-top: 0;">Task tracker / GitHub Projects</h2>
     <p class="small muted">
       When enabled, every product task, design hand-off, developer assignment, review,

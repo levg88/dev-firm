@@ -11,6 +11,8 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { Settings, defaultBaseUrlFor, defaultModelFor } from '../config';
 import * as db from '../db';
 import { buildLlm, MockClient } from '../llm';
+import { ChatService } from '../chat/agent';
+import { RepoCatalog } from '../chat/repos';
 import { BuildService } from '../orchestrator/build';
 import { applyStoredSettings } from '../runtime';
 
@@ -220,6 +222,7 @@ export function createApp(initialSettings?: Settings): express.Express {
       max_build_iterations:
         bodyString(req, 'max_build_iterations') || String(settings.maxBuildIterations),
       allow_heuristic_fallback: bodyBool(req, 'allow_heuristic_fallback') ? 'true' : 'false',
+      repos_dir: bodyString(req, 'repos_dir').trim() || settings.reposDir,
       host: settings.host,
       port: String(settings.port),
       setup_complete: 'true',
@@ -393,7 +396,13 @@ export function createApp(initialSettings?: Settings): express.Express {
     const messages = db.withSession(settings.dbPath, (conn) =>
       db.listRecentChatMessages(conn, 100),
     );
-    page(res, 'chat', { messages, active: 'chat' });
+    let repos: ReturnType<RepoCatalog['list']> = [];
+    try {
+      repos = new RepoCatalog(settings.reposDir).list();
+    } catch {
+      repos = [];
+    }
+    page(res, 'chat', { messages, repos, repos_root: settings.reposDir, active: 'chat' });
   });
 
   app.post('/build', async (req, res) => {
@@ -581,6 +590,15 @@ export function createApp(initialSettings?: Settings): express.Express {
     res.json({ messages });
   });
 
+  app.get('/api/repos', (_req, res) => {
+    try {
+      const catalog = new RepoCatalog(settings.reposDir);
+      res.json({ root: catalog.root, repositories: catalog.list() });
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   app.post('/api/chat', async (req, res) => {
     const content = bodyString(req, 'content').trim();
     if (!content) {
@@ -588,215 +606,41 @@ export function createApp(initialSettings?: Settings): express.Express {
       return;
     }
 
-    // Save the user message.
+    // Load the conversation before saving this turn so the model sees prior
+    // context exactly once (the new message is passed as the current task).
+    const historyRows = db.withSession(settings.dbPath, (conn) =>
+      db.listRecentChatMessages(conn, 60),
+    );
+    const history = ChatService.historyFromRows(historyRows);
+
     const userMsg = db.withSession(settings.dbPath, (conn) =>
       db.saveChatMessage(conn, { workflowRunId: null, role: 'user', content }),
     );
 
-    // ── 1. Gather current firm state for LLM context ─────────────────────────
-    const allWorkflows = db.withSession(settings.dbPath, (conn) =>
-      db.listWorkflows(conn, 10),
-    );
-    const activeBuilds = allWorkflows.filter((w) => w.status === 'running' || w.status === 'queued');
-    const allTickets = db.withSession(settings.dbPath, (conn) =>
-      db.listTickets(conn, null, 30),
-    );
-    const openTickets = allTickets.filter((t) => t.status !== 'done');
-    const allAgentRuns = db.withSession(settings.dbPath, (conn) =>
-      db.listAgentRuns(conn, null, 30),
-    );
-    const latestByRole: Record<string, any> = {};
-    for (const ar of allAgentRuns) {
-      latestByRole[ar.role] = ar;
-    }
-
-    // ── 2. Ask the LLM to classify intent and pick an action ─────────────────
-    let llmDecision: { action: string; repos?: string[]; brief?: string; response?: string } | null = null;
+    let reply = '';
+    let workflowId: number | null = null;
+    let metadata: Record<string, unknown> = {};
 
     try {
-      const llm = buildLlm(settings);
-      if (!(llm instanceof MockClient)) {
-        const systemPrompt = `You are the Dev Firm team coordinator. Analyze the user's message and decide what action to take.
-
-Available actions:
-1. check_repo_access — user wants to verify GitHub repo accessibility. params: { repos: ["owner/repo", ...] }
-2. compare_repos — user wants to compare two repos for tech stack, patterns, design. params: { repos: ["owner/repo1", "owner/repo2"] }
-3. start_build — user wants to build something new. params: { brief: "description of what to build" }
-4. get_status — user wants status of builds, tickets, agents. params: {}
-5. converse — general conversation, no action needed. params: { response: "your conversational reply" }
-
-Current firm state:
-- Active builds: ${activeBuilds.length} (${activeBuilds.map((w) => '#'+w.id+' '+w.title).join(', ') || 'none'})
-- Open tickets: ${openTickets.length}
-- Agent status: ${Object.entries(latestByRole).map(([role, r]: [string, any]) => role+': '+(r ? r.status+' ('+r.model+')' : 'never run')).join(', ')}
-
-IMPORTANT: When the user mentions a repo like "career-firm" or "niw-tracker", always use the full format "levg88/career-firm" or "levg88/niw-tracker" (the owner is levg88). Never use just the repo name or "owner/repo".
-
-Reply with ONLY a JSON object:
-{"action": "check_repo_access|compare_repos|start_build|get_status|converse", "repos": [...], "brief": "...", "response": "..."}
-
-Only include the fields relevant to the chosen action. For "converse", include a helpful "response" field. Do not add any other text.`;
-
-        const llmResp = await llm.complete(
-          [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content },
-          ],
-          { temperature: 0.2, maxTokens: 512 },
-        );
-        const raw = llmResp.text.trim();
-        try {
-          llmDecision = JSON.parse(raw);
-        } catch {
-          // Try to extract JSON from the response
-          const start = raw.indexOf('{');
-          const end = raw.lastIndexOf('}');
-          if (start !== -1 && end > start) {
-            try {
-              llmDecision = JSON.parse(raw.slice(start, end + 1));
-            } catch {
-              llmDecision = null;
-            }
-          }
-        }
-      }
-    } catch {
-      llmDecision = null;
-    }
-
-    // ── 3. Execute the decided action ────────────────────────────────────────
-    let workflowId: number | null = null;
-    let reply = '';
-
-    if (llmDecision && llmDecision.action === 'check_repo_access' && llmDecision.repos) {
-      // Normalize repo names: prepend levg88/ if no owner prefix
-      const normalizedRepos = llmDecision.repos.map((r) => r.includes('/') ? r : 'levg88/' + r);
-      const results: Array<{ repo: string; accessible: boolean; status?: number }> = [];
-      for (const repo of normalizedRepos) {
-        try {
-          const ghResp = await fetch(`https://api.github.com/repos/${repo}`, {
-            headers: { Accept: 'application/vnd.github+json' },
-          });
-          results.push({ repo, accessible: ghResp.ok, status: ghResp.status });
-        } catch {
-          results.push({ repo, accessible: false, status: 0 });
-        }
-      }
-      const allAccessible = results.every((r) => r.accessible);
+      const result = await new ChatService(settings).run(content, history);
+      reply = result.reply;
+      workflowId = result.workflowId;
+      metadata = result.metadata;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       reply =
-        `GitHub repo access check:\n` +
-        results
-          .map((r) => `  • ${r.repo}: ${r.accessible ? '✓ accessible' : '✗ not accessible (HTTP ' + r.status + ')'}`)
-          .join('\n') +
-        `\n\n${allAccessible ? 'All requested repositories are accessible.' : 'Some repositories are not accessible.'}`;
-    } else if (llmDecision && llmDecision.action === 'compare_repos' && llmDecision.repos && llmDecision.repos.length >= 2) {
-      // Normalize repo names: prepend levg88/ if no owner prefix
-      const [repoA, repoB] = llmDecision.repos.map((r) => r.includes('/') ? r : 'levg88/' + r);
-      const fetchRepo = async (repo: string) => {
-        try {
-          const resp = await fetch(`https://api.github.com/repos/${repo}`, {
-            headers: { Accept: 'application/vnd.github+json' },
-          });
-          if (!resp.ok) return { repo, accessible: false, status: resp.status };
-          const data = await resp.json() as { description?: string; language?: string; default_branch?: string; updated_at?: string; size?: number };
-          return { repo, accessible: true, ...data };
-        } catch {
-          return { repo, accessible: false, status: 0 };
-        }
-      };
-      const [infoA, infoB] = await Promise.all([fetchRepo(repoA), fetchRepo(repoB)]);
-      const ia = infoA as { accessible: boolean; status?: number; description?: string; language?: string; default_branch?: string; updated_at?: string; size?: number };
-      const ib = infoB as { accessible: boolean; status?: number; description?: string; language?: string; default_branch?: string; updated_at?: string; size?: number };
-
-      if (!ia.accessible || !ib.accessible) {
-        reply = `Could not fully compare because one or both repos are not accessible:\n` +
-          `  • ${repoA}: ${ia.accessible ? '✓ accessible' : '✗ not accessible (HTTP ' + ia.status + ')'}\n` +
-          `  • ${repoB}: ${ib.accessible ? '✓ accessible' : '✗ not accessible (HTTP ' + ib.status + ')'}`;
-      } else {
-        reply = `Repository comparison:\n\n` +
-          `📦 ${repoA}\n` +
-          `  Description: ${ia.description || '—'}\n` +
-          `  Primary language: ${ia.language || '—'}\n` +
-          `  Default branch: ${ia.default_branch || '—'}\n` +
-          `  Size: ${ia.size || 0} KB\n` +
-          `  Last updated: ${ia.updated_at || '—'}\n\n` +
-          `📦 ${repoB}\n` +
-          `  Description: ${ib.description || '—'}\n` +
-          `  Primary language: ${ib.language || '—'}\n` +
-          `  Default branch: ${ib.default_branch || '—'}\n` +
-          `  Size: ${ib.size || 0} KB\n` +
-          `  Last updated: ${ib.updated_at || '—'}\n\n` +
-          `Both repositories are on GitHub under the levg88 organization. For a deeper tech/patterns/design comparison, clone both repos and examine their source code, package.json, tsconfig.json, and architecture documents directly.`;
-      }
-    } else if (llmDecision && llmDecision.action === 'start_build' && llmDecision.brief) {
-      const buildBrief = llmDecision.brief;
-      workflowId = db.withSession(settings.dbPath, (conn) =>
-        db.createWorkflow(
-          conn,
-          'build',
-          buildBrief.slice(0, 80),
-          { brief: buildBrief, source: 'chat' },
-        ),
-      );
-      setImmediate(() => {
-        void runBuild(settings, workflowId!, buildBrief, undefined);
-      });
-      reply = `I've started a new build for: "${buildBrief}". The team (PM → architect → team lead → developers → tech lead → QA) is on it. Watch progress at /build/${workflowId}.`;
-    } else if (llmDecision && llmDecision.action === 'get_status') {
-      let lines = [
-        `Here's the current status of the dev firm:`,
-        ``,
-        `• Active builds: ${activeBuilds.length} (${activeBuilds.map((w) => `#${w.id} ${w.title}`).join(', ') || 'none'})`,
-        `• Open tickets: ${openTickets.length}`,
-        `• Recent agent runs: ${allAgentRuns.length}`,
-        ``,
-        `Latest by role:`,
-      ];
-      for (const role of [
-        'product_manager',
-        'architect',
-        'team_lead',
-        'backend_developer',
-        'frontend_developer',
-        'tech_lead',
-        'qa',
-      ]) {
-        const r = latestByRole[role];
-        lines.push(`  - ${role}: ${r ? `${r.status} (${r.model})` : 'never run'}`);
-      }
-      reply = lines.join('\n');
-    } else if (llmDecision && llmDecision.action === 'converse' && llmDecision.response) {
-      reply = llmDecision.response;
-    } else {
-      // Fallback: LLM didn't return a usable decision, generate a conversational response
-      try {
-        const llm = buildLlm(settings);
-        if (llm instanceof MockClient) {
-          reply = `I received your message: "${content}". I can help you start builds, check status, or validate/compare GitHub repositories. What would you like to do?`;
-        } else {
-          const systemPrompt = `You are the Dev Firm team coordinator. The user said: "${content}". Respond helpfully and concisely. You can offer to start builds, check status, or compare repositories.`;
-          const llmResp2 = await llm.complete(
-            [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content },
-            ],
-            { temperature: 0.3, maxTokens: 1024 },
-          );
-          reply = llmResp2.text.trim() || `I received your message. I can help you start a build, check team status, or compare GitHub repositories. What would you like to do?`;
-        }
-      } catch {
-        reply = `I received your message: "${content}". I can help you start builds, check team status, or validate/compare GitHub repositories. What would you like to do?`;
-      }
+        `I hit a problem while working on that: ${message}\n\n` +
+        'You can retry the request, or check Settings if the model provider is unavailable.';
+      metadata = { agent: 'concierge', error: message };
     }
 
-    // Save the assistant reply.
     db.withSession(settings.dbPath, (conn) =>
       db.saveChatMessage(conn, {
         workflowRunId: workflowId,
         role: 'assistant',
         content: reply,
-        agentRole: 'system',
-        metadata: { intent: llmDecision?.action || 'fallback', llmDecision: llmDecision ?? null },
+        agentRole: 'concierge',
+        metadata,
       }),
     );
 
@@ -804,6 +648,7 @@ Only include the fields relevant to the chosen action. For "converse", include a
       user_message: userMsg,
       assistant_message: reply,
       workflow_id: workflowId,
+      metadata,
     });
   });
 

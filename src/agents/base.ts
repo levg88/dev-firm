@@ -87,6 +87,11 @@ export class ToolRegistry {
     return [...this.tools.values()].map(toolSchema);
   }
 
+  /** Names of the tools currently registered. */
+  names(): string[] {
+    return [...this.tools.keys()];
+  }
+
   async execute(name: string, args: Record<string, unknown>): Promise<string> {
     const tool = this.tools.get(name);
     if (!tool) {
@@ -115,6 +120,13 @@ export interface AgentSpec {
   maxTokens?: number | null;
 }
 
+/** One executed tool call, kept for chat transparency and debugging. */
+export interface ToolTraceEntry {
+  name: string;
+  arguments: Record<string, unknown>;
+  result: string;
+}
+
 /**
  * Result of a completed agent run: the final text, any parsed JSON payload,
  * step count, token usage, and the last raw LLM response.
@@ -126,6 +138,13 @@ export interface AgentResult {
   promptTokens: number;
   completionTokens: number;
   response: LLMResponse | null;
+  toolTrace: ToolTraceEntry[];
+}
+
+/** A prior conversational turn supplied to {@link Agent.run}. */
+export interface AgentHistoryMessage {
+  role: 'user' | 'assistant';
+  content: string;
 }
 
 /**
@@ -418,7 +437,7 @@ interface CollectedTextCalls {
 }
 
 /** Some weaker models emit tool calls as text instead of using the function-calling API. */
-function collectTextToolCalls(text: string): CollectedTextCalls {
+function collectTextToolCalls(text: string, knownTools: Set<string> = KNOWN_TOOLS): CollectedTextCalls {
   const calls: ToolCall[] = [];
   const failures: string[] = [];
   const seen = new Set<string>();
@@ -436,7 +455,7 @@ function collectTextToolCalls(text: string): CollectedTextCalls {
         ? (record.function as Record<string, unknown>)
         : record;
     const name = typeof candidate.name === 'string' ? candidate.name : '';
-    if (!KNOWN_TOOLS.has(name)) continue;
+    if (!knownTools.has(name)) continue;
     let args = candidate.arguments ?? candidate.parameters ?? {};
     if (typeof args === 'string') {
       const inner = parseLooseJson(args);
@@ -455,11 +474,11 @@ function collectTextToolCalls(text: string): CollectedTextCalls {
   return { calls, failures };
 }
 
-function extractTextToolCalls(text: string): ToolCall[] {
+function extractTextToolCalls(text: string, knownTools: Set<string> = KNOWN_TOOLS): ToolCall[] {
   // Parse the text as-is first. Only repair failed objects: the repairs rewrite
   // text and must not touch valid JSON content that happens to contain
   // JSON.stringify or backticks inside a string.
-  const direct = collectTextToolCalls(text);
+  const direct = collectTextToolCalls(text, knownTools);
   if (!direct.failures.length) return direct.calls;
   const merged = [...direct.calls];
   const seen = new Set(merged.map((call) => `${call.name}:${JSON.stringify(call.arguments)}`));
@@ -470,7 +489,7 @@ function extractTextToolCalls(text: string): ToolCall[] {
       replaceStringifyCalls(replaceTemplateLiterals(failure)),
     ];
     for (const variant of variants) {
-      for (const call of collectTextToolCalls(variant).calls) {
+      for (const call of collectTextToolCalls(variant, knownTools).calls) {
         const key = `${call.name}:${JSON.stringify(call.arguments)}`;
         if (seen.has(key)) continue;
         seen.add(key);
@@ -520,16 +539,23 @@ export class Agent {
    *
    * @param task - The user-facing instruction for this run.
    * @param options.context - Extra context appended to the user message.
+   * @param options.history - Prior user/assistant turns for conversational runs.
    * @param options.schema - When set, the final answer must be valid JSON
    *   conforming to this Zod schema; the agent retries up to 2 times.
    * @param options.maxSteps - Override the configured step limit.
    * @param options.agentRunId - DB id for persisting per-step audit rows.
    * @returns The final text, parsed data (if a schema was given), step count,
-   *   token usage, and the last LLM response.
+   *   token usage, the last LLM response, and the executed tool trace.
    */
   async run(
     task: string,
-    options: { context?: string; schema?: ZodType; maxSteps?: number; agentRunId?: number } = {},
+    options: {
+      context?: string;
+      history?: AgentHistoryMessage[];
+      schema?: ZodType;
+      maxSteps?: number;
+      agentRunId?: number;
+    } = {},
   ): Promise<AgentResult> {
     let system = this.spec.systemPrompt.trim();
     if (options.schema) {
@@ -544,12 +570,16 @@ export class Agent {
     if (options.context?.trim()) {
       user += '\n\nCONTEXT\n' + options.context.trim();
     }
-    const messages: Record<string, any>[] = [
-      { role: 'system', content: system },
-      { role: 'user', content: user },
-    ];
+    const messages: Record<string, any>[] = [{ role: 'system', content: system }];
+    for (const message of options.history ?? []) {
+      if (!message || !['user', 'assistant'].includes(message.role)) continue;
+      const content = String(message.content ?? '').trim();
+      if (content) messages.push({ role: message.role, content });
+    }
+    messages.push({ role: 'user', content: user });
 
     const toolSchemas = this.tools.schemas();
+    const toolTrace: ToolTraceEntry[] = [];
     let promptTokens = 0;
     let completionTokens = 0;
     let jsonAttempts = 0;
@@ -646,7 +676,11 @@ export class Agent {
       // Some weaker local models emit tool calls as text instead of using the
       // function-calling API. Detect and recover those so the run can proceed.
       if (llmResponse.toolCalls.length === 0 && toolSchemas.length > 0) {
-        const extractedCalls = extractTextToolCalls(llmResponse.text);
+        const knownTools = new Set(this.tools.names());
+        const extractedCalls = extractTextToolCalls(
+          llmResponse.text,
+          knownTools.size ? knownTools : KNOWN_TOOLS,
+        );
         if (extractedCalls.length) {
           llmResponse.toolCalls.push(...extractedCalls);
           if (debug) {
@@ -702,6 +736,11 @@ export class Agent {
             0,
           );
           const result = await this.tools.execute(call.name, call.arguments);
+          toolTrace.push({
+            name: call.name,
+            arguments: call.arguments,
+            result: String(result).slice(0, 4000),
+          });
           if (debug) {
             process.stderr.write(
               `[${this.spec.name}] -> ${String(result).slice(0, 300).replace(/\n/g, ' ')}\n`,
@@ -736,6 +775,7 @@ export class Agent {
           promptTokens,
           completionTokens,
           response: llmResponse,
+          toolTrace,
         };
       }
 
@@ -748,6 +788,7 @@ export class Agent {
           promptTokens,
           completionTokens,
           response: llmResponse,
+          toolTrace,
         };
       } catch (error) {
         jsonAttempts += 1;

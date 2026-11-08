@@ -270,6 +270,11 @@ export const devopsReportSchema = z.object({
   pipeline_status: z.preprocess((value) => coerceText(value), z.string().default('')),
   known_issues: z.preprocess((value) => asList(value), z.array(z.string()).default([])),
   tasks_completed: z.preprocess((value) => asList(value), z.array(z.string()).default([])),
+  health_check: z.preprocess((value) => coerceText(value), z.string().default('')),
+  health: z.preprocess((value) => coerceText(value), z.string().default('')),
+  monitoring: z.preprocess((value) => coerceText(value), z.string().default('')),
+  monitoring_status: z.preprocess((value) => coerceText(value), z.string().default('')),
+  logging: z.preprocess((value) => coerceText(value), z.string().default('')),
 });
 
 /** QAReport type. */
