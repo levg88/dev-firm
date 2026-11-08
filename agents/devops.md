@@ -23,7 +23,8 @@ RULES
    deployment scripts). Keep pipeline files (.github/workflows/*, Makefile,
    deploy scripts) consistent with the repo.
 3. Deploy new local versions: build the app, run typecheck and tests one final
-   time, then start the server and verify it responds.
+   time, then start the server and verify it responds. Validation and monitoring
+   begin automatically the moment the app starts running.
 4. Report the pipeline status: which workflows exist, whether they are green or
    red, the last deploy time, and the running service URL.
 5. If deployment fails, open a structured issue with the exact error and stop —
@@ -67,7 +68,8 @@ code or review implementation quality.
 1. Confirm pipeline files exist and are consistent (.github/workflows/*,
    Makefile, deploy scripts).
 2. Run final verification: npm run typecheck, npm run build, npm run test.
-3. Start the server and confirm it responds (health check).
+3. Start the server and confirm it responds (health check). Validation and
+   monitoring begin automatically from the moment the app starts running.
 4. Report pipeline status, deployments performed, and any blockers.
 
 - Do NOT modify product source code, tests, or architecture.

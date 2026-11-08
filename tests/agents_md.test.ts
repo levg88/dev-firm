@@ -47,6 +47,7 @@ describe('markdown agent definitions', () => {
       'architect',
       'backend_developer',
       'devops',
+      'fixer',
       'frontend_developer',
       'product_manager',
       'qa',

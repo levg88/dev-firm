@@ -114,6 +114,32 @@ function inboxText(files: string[]): string {
   return `[Context Inbox] ${files.length} unprocessed finding file(s) in Context/_inbox/: ${shown}${more}. Run /curate-context when the current task is done; do not edit Memory.md directly.`
 }
 
+
+
+async function bugInboxFiles(root: string): Promise<string[]> {
+  const dir = path.join(root, "Bugs/_inbox")
+  try {
+    const names = await readdir(dir)
+    const out: string[] = []
+    for (const name of names.sort()) {
+      if (!name.endsWith(".md") || name === "README.md") continue
+      try {
+        if ((await stat(path.join(dir, name))).size > 0) out.push(name)
+      } catch {}
+    }
+    return out
+  } catch {
+    return []
+  }
+}
+
+function bugInboxText(files: string[]): string {
+  if (!files.length) return ""
+  const shown = files.slice(0, 3).join(", ")
+  const more = files.length > 3 ? ", …" : ""
+  return `[Bug Inbox] ${files.length} unprocessed bug file(s) in Bugs/_inbox/: ${shown}${more}. Run /fix-bugs when the current task is done.`
+}
+
 export default Plugin.define({
   id: "context-router",
   async setup(ctx) {
@@ -122,10 +148,11 @@ export default Plugin.define({
     await ctx.session.hook("prompt", async (event) => {
       try {
         const prompt = String(event.prompt.text ?? "")
-        const [mapping, inbox] = await Promise.all([readRouter(root), inboxFiles(root)])
+        const [mapping, inbox, bugInbox] = await Promise.all([readRouter(root), inboxFiles(root), bugInboxFiles(root)])
         const matches = prompt.trim().length >= 4 ? matchTopics(prompt, parseTopicTable(mapping)) : []
         const router = routerText(matches)
         const reminder = inboxText(inbox)
+        const bugReminder = bugInboxText(bugInbox)
 
         if (router) {
           await ctx.session.instructions.entry.put({ sessionID: event.sessionID, key: ROUTER_KEY, value: router })
@@ -137,6 +164,13 @@ export default Plugin.define({
           await ctx.session.instructions.entry.put({ sessionID: event.sessionID, key: INBOX_KEY, value: reminder })
         } else {
           await ctx.session.instructions.entry.remove({ sessionID: event.sessionID, key: INBOX_KEY }).catch(() => {})
+        }
+
+        const BUG_INBOX_KEY = "bug-inbox"
+        if (bugReminder) {
+          await ctx.session.instructions.entry.put({ sessionID: event.sessionID, key: BUG_INBOX_KEY, value: bugReminder })
+        } else {
+          await ctx.session.instructions.entry.remove({ sessionID: event.sessionID, key: BUG_INBOX_KEY }).catch(() => {})
         }
       } catch {
         // A broken context plugin must never block a prompt.

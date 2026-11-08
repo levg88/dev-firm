@@ -12,6 +12,7 @@ MAX_TOPICS = 6
 # Aliases too generic to trigger on their own (they match only inside a longer phrase).
 NOISE = {"agents", "cli", "providers", "settings", "tests", "tickets"}
 INBOX_DIR = "Context/_inbox"
+BUG_INBOX_DIR = "Bugs/_inbox"
 
 
 def inbox_files():
@@ -26,6 +27,23 @@ def inbox_files():
             continue
         try:
             if os.path.getsize(os.path.join(INBOX_DIR, name)) > 0:
+                out.append(name)
+        except OSError:
+            continue
+    return out
+
+def bug_inbox_files():
+    """Unprocessed bug files: .md, not README.md, not empty."""
+    try:
+        names = os.listdir(BUG_INBOX_DIR)
+    except OSError:
+        return []
+    out = []
+    for name in sorted(names):
+        if not name.endswith(".md") or name == "README.md":
+            continue
+        try:
+            if os.path.getsize(os.path.join(BUG_INBOX_DIR, name)) > 0:
                 out.append(name)
         except OSError:
             continue
@@ -97,6 +115,14 @@ def main():
             f"[Context Inbox] {len(inbox)} unprocessed finding file(s) in {INBOX_DIR}/: "
             f"{shown}. Run /curate-context when the current task is done; "
             "do not edit Memory.md directly."
+        )
+
+    bug_inbox = bug_inbox_files()
+    if bug_inbox:
+        shown = ", ".join(bug_inbox[:3]) + (", …" if len(bug_inbox) > 3 else "")
+        parts.append(
+            f"[Bug Inbox] {len(bug_inbox)} unprocessed bug file(s) in {BUG_INBOX_DIR}/: "
+            f"{shown}. Run /fix-bugs when the current task is done."
         )
 
     if not parts:

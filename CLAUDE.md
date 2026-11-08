@@ -9,3 +9,10 @@ This repo has a `Context/` folder holding **domain knowledge** (agent roles, del
 - **After** learning substantial new domain info: write it to `Context/_inbox/` (format in `Context/_inbox/README.md`). **Every finding must be tagged `(provider / OS, YYYY-MM-DD)` or `(General)`.** If the fact is scope-independent, `(General)` is correct.
 - **Never edit `Memory.md` files directly** — only the Librarian agent does (`/curate-context`). At session end, if `_inbox/` has unprocessed files, suggest running `/curate-context`.
 - Never write secrets or credentials into `Context/`.
+
+## Bug Fix Pipeline
+
+While working, if an agent encounters an error or bug, log it to `Bugs/_inbox/` (format in `Bugs/_inbox/README.md`) just like the learning phase logs findings to `Context/_inbox/`. Every entry must be tagged `(provider / OS, YYYY-MM-DD)` or `(General)`.
+
+- The `fixer` agent (`/fix-bugs`) takes logged issues, investigates root cause, and fixes them (develop), spawning a developer agent when implementation is needed.
+- Never edit `Memory.md` directly. At session end, if `Bugs/_inbox/` has unprocessed files, suggest running `/fix-bugs`.
