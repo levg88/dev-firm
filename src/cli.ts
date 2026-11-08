@@ -8,6 +8,7 @@ import path from 'node:path';
 
 import { Settings, defaultBaseUrlFor, defaultModelFor } from './config';
 import * as db from './db';
+import { loadAgentDefinitions } from './agents/definitions';
 import { BuildService } from './orchestrator/build';
 import { buildLlm, MockClient } from './llm';
 import { applyStoredSettings } from './runtime';
@@ -144,33 +145,30 @@ async function cmdServe(settings: Settings, options: Record<string, string | boo
   return 0;
 }
 
-/** cmdAgents function. */
-function cmdAgents(options: Record<string, string | boolean>): number {
-  const roles: Record<string, [string, string]> = {
-    product_manager: ['Product Manager', 'You are a senior product manager.'],
-    architect: ['Architect', 'You are a pragmatic software architect.'],
-    team_lead: ['Team Lead', 'You are the team lead for a small engineering team.'],
-    backend_developer: [
-      'Backend Developer',
-      'You are a senior backend developer implementing the server, data layer, API, CLI, and persistence.',
-    ],
-    frontend_developer: [
-      'Frontend Developer',
-      'You are a senior frontend developer implementing the user interface, templates, components, client-side behaviour, and styling.',
-    ],
-    tech_lead: ['Tech Lead', 'You are a rigorous tech lead.'],
-    qa: ['QA', 'You are a rigorous QA engineer.'],
-  };
+/** List the markdown agent definitions or print one agent's system prompt. */
+function cmdAgents(settings: Settings, options: Record<string, string | boolean>): number {
+  const definitions = loadAgentDefinitions({ extraDirs: [settings.agentsDir] });
   const selected = optionString(options, 'prompt');
   if (selected) {
-    if (!(selected in roles)) {
-      throw new Error(`Unknown role. Choose: ${Object.keys(roles).join(', ')}`);
+    const found = definitions.find(
+      (definition) =>
+        definition.id === selected ||
+        definition.name.toLowerCase() === selected.toLowerCase(),
+    );
+    if (!found) {
+      throw new Error(
+        `Unknown agent. Choose: ${definitions.map((definition) => definition.id).join(', ')}`,
+      );
     }
-    console.log(roles[selected][1]);
+    console.log(found.systemPrompt);
     return 0;
   }
-  for (const [key, [label, firstLine]] of Object.entries(roles)) {
-    console.log(`${key.padEnd(20)} ${label.padEnd(20)} ${firstLine}`);
+  for (const definition of definitions) {
+    const summary =
+      definition.description || (definition.systemPrompt.split('\n')[0] ?? '');
+    console.log(
+      `${definition.id.padEnd(20)} ${definition.name.padEnd(20)} ${summary.slice(0, 100)}`,
+    );
   }
   return 0;
 }
@@ -266,7 +264,7 @@ commands:
                        Run PM → architect → team lead → developers → tech lead → QA,
                        looping on review/QA failures until QA passes or the limit is hit
   serve                Run the local web app (--host/--port)
-  agents               List agent roles or print a role prompt (--prompt ROLE)
+  agents               List agent definitions or print one (--prompt ID)
   github status        Show GitHub Projects config and verify the project
   github init          Create/verify the project and enable sync
                        (--owner/--repo/--title/--project/--prefix)
@@ -295,7 +293,7 @@ export async function main(argv: string[]): Promise<number> {
       return await cmdBuild(settings, positionals.slice(1), global.options);
     }
     if (command === 'serve') return await cmdServe(settings, global.options);
-    if (command === 'agents') return cmdAgents(global.options);
+    if (command === 'agents') return cmdAgents(settings, global.options);
     if (command === 'github') {
       return await cmdGithub(settings, positionals.slice(1), global.options);
     }

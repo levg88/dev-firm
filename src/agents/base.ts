@@ -27,6 +27,7 @@ import {
   sleep,
 } from '../llm/base';
 import { saveAgentStep, listAgentSteps } from '../db';
+import type { AgentDefinition } from './definitions';
 
 /**
  * Error thrown when an agent run fails unrecoverably (LLM error, invalid JSON
@@ -764,4 +765,30 @@ export class Agent {
 
     throw new AgentError(`Agent '${this.spec.name}' exceeded ${limit} steps without a final answer.`);
   }
+}
+
+/**
+ * Build an {@link Agent} from a markdown agent definition.
+ *
+ * The definition supplies the identity, system prompt, and sampling
+ * parameters; the caller supplies the LLM client, settings, and any tools.
+ */
+export function agentFromDefinition(
+  definition: AgentDefinition,
+  llm: LLMClient,
+  settings: Settings,
+  tools?: ToolRegistry,
+): Agent {
+  return new Agent(
+    {
+      name: definition.id,
+      role: definition.role,
+      systemPrompt: definition.systemPrompt,
+      temperature: definition.temperature,
+      maxTokens: definition.maxTokens,
+    },
+    llm,
+    settings,
+    tools,
+  );
 }

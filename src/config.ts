@@ -127,6 +127,7 @@ export class Settings {
   dbPath: string;
   storageDir: string;
   runsDir: string;
+  agentsDir: string;
   provider: Provider;
   model: string;
   apiKey: string;
@@ -200,6 +201,9 @@ export class Settings {
     this.dbPath = path.join(values.home, 'dev.db');
     this.storageDir = path.join(values.home, 'storage');
     this.runsDir = path.join(values.home, 'runs');
+    this.agentsDir = path.resolve(
+      process.env.DEV_FIRM_AGENTS_DIR || path.join(values.home, 'agents'),
+    );
     this.provider = values.provider;
     this.model = values.model;
     this.apiKey = values.apiKey;
@@ -363,7 +367,7 @@ export class Settings {
   }
 
   ensureDirs(): void {
-    for (const dir of [this.dataDir, this.storageDir, this.runsDir]) {
+    for (const dir of [this.dataDir, this.storageDir, this.runsDir, this.agentsDir]) {
       fs.mkdirSync(dir, { recursive: true });
     }
     for (const sub of ['cvs', 'jobs', 'generated']) {
@@ -417,6 +421,9 @@ export class Settings {
     }
     if ('host' in values) this.host = values.host.trim() || '127.0.0.1';
     if ('port' in values) this.port = asInt('port', this.port);
+    if ('agents_dir' in values) {
+      this.agentsDir = path.resolve(values.agents_dir.trim() || this.agentsDir);
+    }
     if ('setup_complete' in values) {
       this.setupComplete = asBool('setup_complete', this.setupComplete);
     }
@@ -488,6 +495,7 @@ export class Settings {
       allow_heuristic_fallback: this.allowHeuristicFallback ? 'true' : 'false',
       host: this.host,
       port: String(this.port),
+      agents_dir: this.agentsDir,
       setup_complete: this.setupComplete ? 'true' : 'false',
       ticket_prefix: this.ticketPrefix,
       github_enabled: this.githubEnabled ? 'true' : 'false',
@@ -538,6 +546,7 @@ export class Settings {
       data_dir: this.dataDir,
       db_path: this.dbPath,
       runs_dir: this.runsDir,
+      agents_dir: this.agentsDir,
       temperature: this.temperature,
       max_tokens: this.maxTokens,
       max_agent_steps: this.maxAgentSteps,

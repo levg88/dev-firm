@@ -3,54 +3,58 @@
  *
  * Turns a product spec into an implementable architecture document (stack,
  * file plan, data model, API, test plan, risks) via the LLM, validated against
- * `architectureSchema`.
+ * `architectureSchema`. The identity, prompt, and task template come from
+ * `agents/architect.md`.
  */
 
 import { Settings } from '../config';
 import { LLMClient } from '../llm/base';
-import { Agent, AgentResult } from './base';
-import { Architecture, ProductSpec, architectureSchema } from './build_schemas';
-import { ARCHITECT } from './prompts';
+import { AgentResult, agentFromDefinition } from './base';
+import { ProductSpec } from './build_schemas';
+import { getAgentDefinition, renderAgentTask, type AgentDefinition } from './definitions';
 import { runAgent } from './runner';
+import { schemaForAgent } from './schema';
 
 /** Architect role agent: designs the system architecture from a product spec. */
 export class Architect {
-  readonly role = 'architect';
+  readonly definition: AgentDefinition;
+  readonly role: string;
 
-  constructor(private settings: Settings, private llm: LLMClient) {}
+  constructor(private settings: Settings, private llm: LLMClient) {
+    this.definition = getAgentDefinition('architect', { extraDirs: [settings.agentsDir] });
+    this.role = this.definition.role;
+  }
 
   async run(
     spec: ProductSpec,
     options: { workflowRunId?: number | null; feedback?: string; round?: number } = {},
   ): Promise<AgentResult> {
-    const agent = new Agent(
-      {
-        name: 'architect',
-        role: 'architect',
-        systemPrompt: ARCHITECT,
-        temperature: 0.2,
-      },
-      this.llm,
-      this.settings,
-    );
-    const task =
-      `Design the smallest implementable architecture for this product spec (round ${options.round ?? 1}).\n\n` +
-      `## SPEC\n${spec.markdown}\n\n` +
-      `## ACCEPTANCE CRITERIA\n` +
-      spec.acceptance_criteria.map((item: string) => `- ${item}`).join('\n') +
-      `\n\n## TASKS\n` +
-      spec.tasks
-        .map(
-          (task, index) =>
-            `${index + 1}. ${task.title} (area: ${task.area})\n   ${task.description}\n   Acceptance: ${task.acceptance_criteria.join('; ')}`,
-        )
-        .join('\n') +
-      (options.feedback ? `\n\n## TEAM LEAD FEEDBACK TO ADDRESS\n${options.feedback}` : '');
+    const acceptanceCriteria = spec.acceptance_criteria
+      .map((item: string) => `- ${item}`)
+      .join('\n');
+    const tasks = spec.tasks
+      .map(
+        (task, index) =>
+          `${index + 1}. ${task.title} (area: ${task.area})\n   ${task.description}\n   Acceptance: ${task.acceptance_criteria.join('; ')}`,
+      )
+      .join('\n');
+    const feedbackSection = options.feedback
+      ? `\n## TEAM LEAD FEEDBACK TO ADDRESS\n${options.feedback}`
+      : '';
+
+    const task = renderAgentTask(this.definition, {
+      round: options.round ?? 1,
+      spec: spec.markdown,
+      acceptance_criteria: acceptanceCriteria,
+      tasks,
+      feedback_section: feedbackSection,
+    });
+    const agent = agentFromDefinition(this.definition, this.llm, this.settings);
     return runAgent(this.settings, agent, {
-      workflow: 'build',
-      role: 'architect',
+      workflow: this.definition.workflow,
+      role: this.role,
       task,
-      schema: architectureSchema,
+      schema: schemaForAgent(this.definition),
       workflowRunId: options.workflowRunId ?? null,
     });
   }

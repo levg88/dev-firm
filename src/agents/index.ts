@@ -1,24 +1,31 @@
-export { Agent, AgentError, ToolRegistry } from './base';
+export { Agent, AgentError, ToolRegistry, agentFromDefinition } from './base';
 export type { AgentResult, AgentSpec, Tool } from './base';
 export { runAgent, recordHeuristicRun } from './runner';
 export { makeTools, Sandbox, SandboxError } from './tools';
 export {
-  PM,
-  ARCHITECT,
-  BACKEND_DEVELOPER,
-  DEVELOPER,
-  FRONTEND_DEVELOPER,
-  QA,
-  TEAM_LEAD,
-  TL,
-  DEVOPS,
-} from './prompts';
+  AGENT_SCHEMA_NAMES,
+  agentSearchDirs,
+  defaultAgentsDir,
+  getAgentDefinition,
+  loadAgentDefinitions,
+  parseAgentFile,
+  parseAgentMarkdown,
+  renderAgentTask,
+  renderTaskTemplate,
+} from './definitions';
+export type {
+  AgentDefinition,
+  AgentSchemaName,
+  LoadAgentOptions,
+} from './definitions';
+export { schemaForAgent } from './schema';
 export {
   architectureSchema,
   bugSchema,
   bugTriageSchema,
   designReviewSchema,
   developerReportSchema,
+  devopsReportSchema,
   filePlanSchema,
   productSpecSchema,
   qaReportSchema,
@@ -31,6 +38,7 @@ export type {
   BugTriage,
   DesignReview,
   DeveloperReport,
+  DevOpsReport,
   FilePlan,
   ProductSpec,
   QAReport,

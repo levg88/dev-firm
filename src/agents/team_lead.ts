@@ -3,12 +3,13 @@
  *
  * Reviews the architect's design and routes every task to a developer; also
  * triages QA-opened bugs and routes them. Both flows return structured
- * design-review / bug-triage JSON.
+ * design-review / bug-triage JSON. Prompts and task templates come from
+ * `agents/team-lead.md` and `agents/team-lead-triage.md`.
  */
 
 import { Settings } from '../config';
 import { LLMClient } from '../llm/base';
-import { Agent, AgentResult } from './base';
+import { AgentResult, agentFromDefinition } from './base';
 import {
   Architecture,
   DesignReview,
@@ -16,11 +17,10 @@ import {
   ProductSpec,
   QAReport,
   TaskSpec,
-  bugTriageSchema,
-  designReviewSchema,
 } from './build_schemas';
-import { TEAM_LEAD } from './prompts';
+import { getAgentDefinition, renderAgentTask, type AgentDefinition } from './definitions';
 import { runAgent } from './runner';
+import { schemaForAgent } from './schema';
 
 export interface TicketTask {
   key: string;
@@ -29,21 +29,16 @@ export interface TicketTask {
 
 /** Team lead role agent: design review and bug triage routing. */
 export class TeamLead {
-  readonly role = 'team_lead';
+  readonly definition: AgentDefinition;
+  readonly triageDefinition: AgentDefinition;
+  readonly role: string;
 
-  constructor(private settings: Settings, private llm: LLMClient) {}
-
-  private agent(systemPrompt: string): Agent {
-    return new Agent(
-      {
-        name: 'team_lead',
-        role: 'team_lead',
-        systemPrompt,
-        temperature: 0.2,
-      },
-      this.llm,
-      this.settings,
-    );
+  constructor(private settings: Settings, private llm: LLMClient) {
+    this.definition = getAgentDefinition('team_lead', { extraDirs: [settings.agentsDir] });
+    this.triageDefinition = getAgentDefinition('team_lead_triage', {
+      extraDirs: [settings.agentsDir],
+    });
+    this.role = this.definition.role;
   }
 
   /** Review the design and route every task to a developer. */
@@ -61,26 +56,22 @@ export class TeamLead {
           `  Acceptance: ${entry.task.acceptance_criteria.join('; ') || 'see product spec'}`,
       )
       .join('\n');
-    const task = [
-      `Review the design (round ${options.round ?? 1}) and assign every task.`,
-      '',
-      '## PRODUCT SPEC (PRD)',
-      spec.markdown,
-      '',
-      '## ARCHITECTURE / DESIGN',
-      architecture.markdown,
-      '',
-      '## TASKS TO ROUTE',
-      taskList || '(no tasks)',
-      options.feedback ? `\n## PREVIOUS REVIEW FEEDBACK\n${options.feedback}` : '',
-      '',
-      'Return the design review JSON. Use the exact task keys in assignment.task.',
-    ].join('\n');
-    return runAgent(this.settings, this.agent(TEAM_LEAD), {
-      workflow: 'build',
-      role: 'team_lead',
+    const feedbackSection = options.feedback
+      ? `\n## PREVIOUS REVIEW FEEDBACK\n${options.feedback}`
+      : '';
+    const task = renderAgentTask(this.definition, {
+      round: options.round ?? 1,
+      spec: spec.markdown,
+      architecture: architecture.markdown,
+      tasks: taskList || '(no tasks)',
+      feedback_section: feedbackSection,
+    });
+    const agent = agentFromDefinition(this.definition, this.llm, this.settings);
+    return runAgent(this.settings, agent, {
+      workflow: this.definition.workflow,
+      role: this.role,
       task,
-      schema: designReviewSchema,
+      schema: schemaForAgent(this.definition),
       workflowRunId: options.workflowRunId ?? null,
     });
   }
@@ -99,28 +90,20 @@ export class TeamLead {
           `  ${entry.bug.description}`,
       )
       .join('\n');
-    const task = [
-      `Triage QA bugs from iteration ${options.iteration ?? 1} and assign each to a developer.`,
-      '',
-      '## PRODUCT SPEC (PRD)',
-      spec.markdown,
-      '',
-      '## QA REPORT',
-      `Passed: ${qa.passed ? 'yes' : 'no'}`,
-      qa.summary,
-      'Issues:',
-      ...qa.issues.map((issue) => `- ${issue}`),
-      '',
-      '## OPEN BUGS',
-      bugList || '(no bugs)',
-      '',
-      'Return the bug triage JSON. Use the exact bug keys in assignment.task.',
-    ].join('\n');
-    return runAgent(this.settings, this.agent(TEAM_LEAD), {
-      workflow: 'build',
-      role: 'team_lead',
+    const task = renderAgentTask(this.triageDefinition, {
+      iteration: options.iteration ?? 1,
+      spec: spec.markdown,
+      qa_passed: qa.passed ? 'yes' : 'no',
+      qa_summary: qa.summary,
+      qa_issues: qa.issues.map((issue) => `- ${issue}`).join('\n'),
+      bugs: bugList || '(no bugs)',
+    });
+    const agent = agentFromDefinition(this.triageDefinition, this.llm, this.settings);
+    return runAgent(this.settings, agent, {
+      workflow: this.triageDefinition.workflow,
+      role: this.role,
       task,
-      schema: bugTriageSchema,
+      schema: schemaForAgent(this.triageDefinition),
       workflowRunId: options.workflowRunId ?? null,
     });
   }

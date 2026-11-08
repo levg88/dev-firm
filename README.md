@@ -170,7 +170,7 @@ npm run cli -- build "BRIEF" --title "T" --repo PATH --max-iterations 5
                                             Run validate → PM → architect → team lead →
                                             developers → tech lead → QA (loops until pass)
 npm run cli -- serve --host 127.0.0.1 --port 8766
-npm run cli -- agents --prompt team_lead   List roles / print a role prompt
+npm run cli -- agents --prompt team_lead   List agents / print an agent's system prompt
 npm run cli -- github status               Show GitHub Projects config and verify the project
 npm run cli -- github init --owner levg88 --repo career-firm --title "Career Team"
                                             Create/verify the project and enable sync
@@ -233,6 +233,7 @@ wizard, the stored configuration takes precedence.
 | `DEV_FIRM_MAX_ITERATIONS` | `5` | Max delivery loops before the epic is blocked |
 | `DEV_FIRM_HEURISTIC_FALLBACK` | `true` | Fall back to offline output if a model call fails |
 | `DEV_FIRM_HOME` | `./data` | Database, workspaces, run artifacts |
+| `DEV_FIRM_AGENTS_DIR` | `<home>/agents` | Directory of Markdown agent overrides |
 | `DEV_FIRM_HOST` | `127.0.0.1` | Bind address |
 | `DEV_FIRM_PORT` | `8766` | Bind port |
 | `DEV_FIRM_TICKET_PREFIX` | `CAREER` | Prefix for local ticket keys |
@@ -343,22 +344,39 @@ machine unless your configured model provider receives the prompt.
 
 ## Extending
 
-Each agent lives in its own module under `src/agents/`:
+Agent identity, prompts, task templates, and sampling parameters live in Markdown
+files under `agents/`. They are loaded at runtime, so editing one changes the next
+agent run without a rebuild. The TypeScript modules under `src/agents/` only build
+each task and wire the runtime.
 
 ```text
 agents/
-  product_manager.ts  PM agent (spec + task breakdown)
-  architect.ts        design agent
+  product-manager.md      PM (spec + task breakdown)
+  architect.md            design
+  team-lead.md            design review + task routing
+  team-lead-triage.md     QA bug triage
+  backend-developer.md    backend developer
+  frontend-developer.md   frontend developer
+  tech-lead.md            code review
+  qa.md                   verification
+  devops.md               CI/CD + deployment
+  README.md               file format and override rules
+
+src/agents/
+  definitions.ts      Markdown loader (frontmatter, sections, overrides)
+  schema.ts           maps `schema:` names to Zod contracts
+  product_manager.ts  PM wrapper
+  architect.ts        design wrapper
   team_lead.ts        design review, task routing, bug triage
-  developer.ts        backend/frontend developer agent (parameterised)
-  tech_lead.ts        code review agent
-  qa.ts               verification agent
+  developer.ts        backend/frontend developer wrapper (parameterised)
+  tech_lead.ts        code review wrapper
+  qa.ts               verification wrapper
+  devops.ts           deployment wrapper
   build_team.ts       facade used by the pipeline
   build_schemas.ts    zod contracts between roles
   base.ts             shared Agent / AgentSpec runtime
   runner.ts           schema validation, retries, audit logging
   tools.ts            sandboxed file and command tools
-  prompts.ts          system prompts for every role
 
 tracker/
   types.ts            tracker interface and ticket types
@@ -369,10 +387,16 @@ tracker/
 
 To add a role:
 
-1. Add a prompt in `src/agents/prompts.ts`.
-2. Create `src/agents/<name>.ts` with a class that wraps `Agent` + `runAgent(...)`.
+1. Add `agents/<name>.md` with frontmatter and `# System Prompt` / `# Task` sections
+   (see `agents/README.md`).
+2. Create `src/agents/<name>.ts` with a class that loads the definition, renders its
+   task template, and calls `runAgent(...)`.
 3. Export it from `src/agents/index.ts`.
 4. Wire it into `BuildAgents` and `BuildService`.
+
+To change a prompt without touching code, edit the `.md` file. To override an agent
+per installation, drop a same-named file in `<home>/agents` (or set
+`DEV_FIRM_AGENTS_DIR`); it replaces the bundled definition by `id`.
 
 ### Add a provider
 

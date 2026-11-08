@@ -3,15 +3,17 @@
  *
  * Builds the verification task prompt (spec, architecture, tickets, file list)
  * and runs QA with read-only sandbox tools so it can inspect and test the build
- * without modifying it.
+ * without modifying it. The identity, prompt, and task template come from
+ * `agents/qa.md`.
  */
 
 import { Settings } from '../config';
 import { LLMClient } from '../llm/base';
-import { Agent, AgentResult } from './base';
-import { Architecture, ProductSpec, TaskSpec, qaReportSchema } from './build_schemas';
-import { QA as QAPrompt } from './prompts';
+import { AgentResult, agentFromDefinition } from './base';
+import { Architecture, ProductSpec, TaskSpec } from './build_schemas';
+import { getAgentDefinition, renderAgentTask, type AgentDefinition } from './definitions';
 import { runAgent } from './runner';
+import { schemaForAgent } from './schema';
 import { makeTools, Sandbox } from './tools';
 
 export interface QATicket {
@@ -29,9 +31,13 @@ export interface QAOptions {
 
 /** QA role agent: verifies the implementation against spec and runs tests. */
 export class QA {
-  readonly role = 'qa';
+  readonly definition: AgentDefinition;
+  readonly role: string;
 
-  constructor(private settings: Settings, private llm: LLMClient) {}
+  constructor(private settings: Settings, private llm: LLMClient) {
+    this.definition = getAgentDefinition('qa', { extraDirs: [settings.agentsDir] });
+    this.role = this.definition.role;
+  }
 
   async run(
     spec: ProductSpec,
@@ -39,43 +45,35 @@ export class QA {
     sandbox: Sandbox,
     options: QAOptions = {},
   ): Promise<AgentResult> {
-    const agent = new Agent(
-      {
-        name: 'qa',
-        role: 'qa',
-        systemPrompt: QAPrompt,
-        temperature: 0.1,
-      },
-      this.llm,
-      this.settings,
-      makeTools(sandbox, { readOnly: true }),
-    );
     const files = sandbox.listFiles({});
     const tickets = (options.tickets ?? [])
       .map((entry) => `- [${entry.key}] ${entry.task.title} (owner: ${entry.role ?? 'developer'})`)
       .join('\n');
-    const task = [
-      `Verify iteration ${options.iteration ?? 1} of the implementation and run the tests.`,
-      '',
-      `## SPEC\n${spec.markdown}`,
-      '',
-      `## ARCHITECTURE\n${architecture.markdown}`,
-      '',
-      `## FILE PLAN\n${JSON.stringify(architecture)}`,
-      '',
-      '## TICKETS UNDER TEST',
-      tickets || '(all product acceptance criteria)',
-      '',
-      `## FILES PRESENT\n${files.slice(0, 200).map((file: string) => `- ${file}`).join('\n')}`,
-      options.feedback ? `\n## PREVIOUS QA FEEDBACK\n${options.feedback}` : '',
-      '',
-      'Run the tests. If anything fails, create one structured bug per concrete failure.',
-    ].join('\n');
+    const feedbackSection = options.feedback
+      ? `\n## PREVIOUS QA FEEDBACK\n${options.feedback}`
+      : '';
+
+    const task = renderAgentTask(this.definition, {
+      iteration: options.iteration ?? 1,
+      spec: spec.markdown,
+      architecture: architecture.markdown,
+      file_plan: JSON.stringify(architecture),
+      tickets: tickets || '(all product acceptance criteria)',
+      files: files.slice(0, 200).map((file: string) => `- ${file}`).join('\n'),
+      feedback_section: feedbackSection,
+    });
+
+    const agent = agentFromDefinition(
+      this.definition,
+      this.llm,
+      this.settings,
+      makeTools(sandbox, { readOnly: true }),
+    );
     return runAgent(this.settings, agent, {
-      workflow: 'build',
-      role: 'qa',
+      workflow: this.definition.workflow,
+      role: this.role,
       task,
-      schema: qaReportSchema,
+      schema: schemaForAgent(this.definition),
       workflowRunId: options.workflowRunId ?? null,
     });
   }

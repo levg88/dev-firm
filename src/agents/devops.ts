@@ -2,15 +2,17 @@
  * @fileoverview DevOps agent wrapper.
  *
  * Builds the task prompt for the DevOps engineer (CI/CD, GitOps, deployment)
- * and runs it with sandbox tools, gated on QA having passed.
+ * and runs it with sandbox tools, gated on QA having passed. The identity,
+ * prompt, and task template come from `agents/devops.md`.
  */
 
 import { Settings } from '../config';
 import { LLMClient } from '../llm/base';
-import { Agent, AgentResult } from './base';
+import { AgentResult, agentFromDefinition } from './base';
 import { ProductSpec } from './build_schemas';
-import { DEVOPS } from './prompts';
+import { getAgentDefinition, renderAgentTask, type AgentDefinition } from './definitions';
 import { runAgent } from './runner';
+import { schemaForAgent } from './schema';
 import { makeTools, Sandbox } from './tools';
 
 export type DevOpsRole = 'devops';
@@ -38,6 +40,7 @@ export interface DevOpsRunOptions {
 export class DevOps {
   readonly role: DevOpsRole;
   readonly name: string;
+  readonly definition: AgentDefinition;
 
   constructor(
     private settings: Settings,
@@ -47,6 +50,7 @@ export class DevOps {
   ) {
     this.role = role;
     this.name = name;
+    this.definition = getAgentDefinition(role, { extraDirs: [settings.agentsDir] });
   }
 
   async run(
@@ -54,18 +58,6 @@ export class DevOps {
     sandbox: Sandbox,
     options: DevOpsRunOptions = {},
   ): Promise<AgentResult> {
-    const agent = new Agent(
-      {
-        name: this.name,
-        role: this.role,
-        systemPrompt: DEVOPS,
-        temperature: 0.2,
-      },
-      this.llm,
-      this.settings,
-      makeTools(sandbox),
-    );
-
     const assigned = (options.tickets ?? [])
       .map(
         (entry) =>
@@ -79,54 +71,34 @@ export class DevOps {
       ? 'PASSED — deployment is authorized.'
       : 'NOT PASSED — deployment is BLOCKED. Do not deploy until QA signs off.';
 
-    const task = [
-      `You are the DevOps engineer. You own CI/CD, GitOps, and deployment.`,
-      '',
-      '## MISSION',
-      'Monitor and update the delivery pipeline (CI/CD / GitOps) and deploy new',
-      'local versions of verified, QA-passed code. You do NOT write application',
-      'code or review implementation quality.',
-      '',
-      '## QA STATUS',
-      qaStatus,
-      '',
-      '## SPEC',
-      spec.markdown,
-      '',
-      '## ASSIGNED TASKS',
-      assigned || '(manage pipeline and deployment for this build)',
-      '',
-      '## RUNTIME',
-      `- Node.js version: ${process.version.replace(/^v/, '')}`,
-      '- Project root is the current workspace.',
-      '- Repo uses TypeScript, strict tsconfig.json, scripts: typecheck, build, test.',
-      '- Use the built-in node:sqlite module for persistence; never add native addons.',
-      '- Deploy by running typecheck, build, test, then starting the server and',
-      '  verifying it responds on its configured port.',
-      '',
-      '## DELIVERABLES',
-      '1. Confirm pipeline files exist and are consistent (.github/workflows/*,',
-      '   Makefile, deploy scripts).',
-      '2. Run final verification: npm run typecheck, npm run build, npm run test.',
-      '3. Start the server and confirm it responds (health check).',
-      '4. Report pipeline status, deployments performed, and any blockers.',
-      '',
-      '- Do NOT modify product source code, tests, or architecture.',
-      '- Only touch deployment, pipeline, and ops-related files.',
-      '- If deployment fails, report the exact error and stop; do not retry blindly.',
-    ];
-    if (options.feedback?.trim()) {
-      task.push('', '## FEEDBACK TO FIX', options.feedback.trim());
-    }
-    if (options.iteration && options.iteration > 1) {
-      task.push('', `This is deployment iteration ${options.iteration}. Fix the feedback and re-deploy.`);
-    }
+    const feedbackSection = options.feedback?.trim()
+      ? `\n## FEEDBACK TO FIX\n${options.feedback.trim()}`
+      : '';
+    const iterationNote =
+      options.iteration && options.iteration > 1
+        ? `\nThis is deployment iteration ${options.iteration}. Fix the feedback and re-deploy.`
+        : '';
 
+    const task = renderAgentTask(this.definition, {
+      qa_status: qaStatus,
+      spec: spec.markdown,
+      assigned: assigned || '(manage pipeline and deployment for this build)',
+      node_version: process.version.replace(/^v/, ''),
+      feedback_section: feedbackSection,
+      iteration_note: iterationNote,
+    });
+
+    const agent = agentFromDefinition(
+      this.definition,
+      this.llm,
+      this.settings,
+      makeTools(sandbox),
+    );
     return runAgent(this.settings, agent, {
-      workflow: 'build',
+      workflow: this.definition.workflow,
       role: this.role,
-      task: task.join('\n'),
-      schema: undefined,
+      task,
+      schema: schemaForAgent(this.definition),
       workflowRunId: options.workflowRunId ?? null,
     });
   }
