@@ -655,6 +655,29 @@ export class BuildService {
           // Code-level failure: log it so the Fixer agent can catch and fix it.
           this._logError(workflowId, workspace, 'devops_validation', new Error(finalValidation.slice(0, 2000)));
         }
+
+        // Install a persistent health watchdog so monitoring continues all the
+        // time, independent of any build. The watchdog checks the health
+        // endpoint and restarts the app on failure, logging downtime for the
+        // Fixer.
+        try {
+          const templatePath = path.join(__dirname, '..', 'templates', 'monitor.js');
+          const monitorPath = path.join(workspace, 'monitor.js');
+          if (fs.existsSync(templatePath) && !fs.existsSync(monitorPath)) {
+            fs.copyFileSync(templatePath, monitorPath);
+          }
+          const pkgPath = path.join(workspace, 'package.json');
+          if (fs.existsSync(pkgPath)) {
+            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+            pkg.scripts = pkg.scripts || {};
+            if (!pkg.scripts.monitor) {
+              pkg.scripts.monitor = 'node monitor.js';
+              fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2), 'utf8');
+            }
+          }
+        } catch (error) {
+          this._logError(workflowId, workspace, 'devops_monitor', error);
+        }
         try {
           const deployResult = await this.agents.devops(spec, sandbox, {
             workflowRunId: workflowId,
