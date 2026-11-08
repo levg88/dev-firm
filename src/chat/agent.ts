@@ -193,6 +193,7 @@ WHAT YOU CAN DO
 - Inspect local repositories: list files, read files, and search code.
 - Check GitHub repository metadata (access, description, language) for repos that are not cloned locally.
 - Start a build or change request in a repository when the user asks for one.
+- Retry a failed build automatically and diagnose which agents failed and why.
 
 WHAT YOU CANNOT DO (be honest about these)
 - You cannot run or start applications, monitor live logs, or inspect running processes.
@@ -214,6 +215,7 @@ HOW TO WORK
 8. Keep replies conversational, specific, and reasonably concise. Use light Markdown. Do not dump raw JSON or tool output.
 9. After starting a build, tell the user the build number and the /build/<id> link, and briefly restate what the team is doing.
 10. Do not repeat a tool call you already made in this conversation; reuse the prior result and summarize it. If the user repeats a request, acknowledge and give the already-known answer instead of re-running checks.
+11. FAILURE HANDLING / CLOSING THE LOOP: When get_build, get_firm_status, or list_builds shows a failed workflow or failed agents, do NOT just report it. First call diagnose_build to see which agents failed and why, then call retry_build to re-run the pipeline. Tell the user you are retrying and that it will be retried automatically if it fails again. Repeat diagnosis+retry until the build succeeds or retries are exhausted. Do not declare success until the build status is 'done'.
 11. If the user is just chatting or thinking aloud, respond as a helpful engineer and do not force an action.
 
 CURRENT CONTEXT
@@ -437,6 +439,37 @@ ${knownRepos}
       handler: (args) => this.startBuild(state, args),
     });
 
+    registry.add({
+      name: 'retry_build',
+      description:
+        'Re-run a failed or blocked build workflow. Use this when get_build shows failed agents or a failed workflow, ' +
+        'to retry until it succeeds. Runs in the background; report the workflow id and /build/<id> link. ' +
+        'Do NOT retry a build that is currently running.',
+      parameters: {
+        type: 'object',
+        properties: {
+          workflow_id: { type: 'integer', description: 'Build/workflow id to retry' },
+        },
+        required: ['workflow_id'],
+      },
+      handler: (args) => this.retryBuild(state, Number(args.workflow_id)),
+    });
+
+    registry.add({
+      name: 'diagnose_build',
+      description:
+        'Inspect a build for failed agent runs and report which agents failed, their errors, and the workflow status. ' +
+        'Use this to understand why a build did not succeed before retrying. Returns failed agents, their error messages, and recent tickets.',
+      parameters: {
+        type: 'object',
+        properties: {
+          workflow_id: { type: 'integer', description: 'Build/workflow id to diagnose' },
+        },
+        required: ['workflow_id'],
+      },
+      handler: (args) => this.diagnoseBuild(Number(args.workflow_id)),
+    });
+
     return registry;
   }
 
@@ -547,6 +580,120 @@ ${knownRepos}
         ? 'The delivery team is starting against this repository. Progress is visible on the build page.'
         : 'The delivery team is starting in a fresh workspace. Progress is visible on the build page.',
     };
+  }
+
+  /** Re-run a failed/blocked build workflow in the background. */
+  private retryBuild(state: ChatTurnState, workflowId: number): Record<string, unknown> {
+    if (!Number.isFinite(workflowId)) throw new RepoError('A numeric build id is required.');
+    return db.withSession(this.settings.dbPath, (conn) => {
+      const workflow = db.getWorkflow(conn, workflowId);
+      if (!workflow) throw new RepoError(`Build #${workflowId} was not found.`);
+      const status = String(workflow.status ?? '');
+      if (status === 'running' || status === 'queued') {
+        throw new RepoError(`Build #${workflowId} is already ${status}; not retrying.`);
+      }
+      const input = (workflow.input ?? {}) as Record<string, any>;
+      const brief = String(input.brief ?? workflow.title ?? '').trim();
+      if (!brief) throw new RepoError(`Build #${workflowId} has no brief to retry.`);
+      const repoPath = String(input.repo_path ?? workflow.workspace_path ?? '').trim();
+
+      db.updateWorkflow(conn, workflowId, {
+        status: 'queued',
+        error: null,
+        finished_at: null,
+      });
+
+      state.workflowId = workflowId;
+      state.startedBuilds.push({ id: workflowId, repo: repoPath || '(new workspace)', title: String(workflow.title ?? '') });
+
+      this.startBuildRunner(workflowId, brief, repoPath || undefined);
+
+      // Background auto-retry loop: poll and re-run on failure up to 3 times.
+      this.scheduleAutoRetry(workflowId, brief, repoPath || undefined, 3);
+
+      return {
+        ok: true,
+        workflow_id: workflowId,
+        url: `/build/${workflowId}`,
+        status: 'queued',
+        note: 'Retrying the build in the background. Progress is visible on the build page. I will re-run it automatically if it fails again.',
+      };
+    });
+  }
+
+  /** Diagnose a build: list failed agent runs and their errors. */
+  private diagnoseBuild(workflowId: number): Record<string, unknown> {
+    if (!Number.isFinite(workflowId)) throw new RepoError('A numeric build id is required.');
+    return db.withSession(this.settings.dbPath, (conn) => {
+      const workflow = db.getWorkflow(conn, workflowId);
+      if (!workflow) throw new RepoError(`Build #${workflowId} was not found.`);
+      const agentRuns = db.listAgentRuns(conn, workflowId, 200);
+      const failed = agentRuns.filter((run) => String(run.status ?? '').toLowerCase() === 'failed');
+      const tickets = db.listTickets(conn, workflowId, 200).map((t) => ({
+        key: t.key,
+        title: t.title,
+        status: t.status,
+        assignee: t.assignee,
+      }));
+      return {
+        workflow_id: workflowId,
+        status: workflow.status,
+        error: workflow.error,
+        failed_agents: failed.map((run) => ({
+          role: run.role,
+          model: run.model,
+          error: run.error,
+          finished_at: run.finished_at,
+        })),
+        failed_count: failed.length,
+        total_agent_runs: agentRuns.length,
+        tickets,
+        recommendation:
+          failed.length > 0
+            ? 'Some agents failed. Review the errors above, then call retry_build to re-run the pipeline. I can retry automatically.'
+            : 'No failed agent runs recorded. If the build is still not done, check its status again shortly.',
+      };
+    });
+  }
+
+  /** Schedule a background watcher that retries a build on failure up to maxRetries times. */
+  private scheduleAutoRetry(workflowId: number, brief: string, repoPath: string | undefined, maxRetries: number): void {
+    const timers = (this as any)._retryTimers ?? new Map<number, any>();
+    (this as any)._retryTimers = timers;
+    if (timers.has(workflowId)) return;
+
+    let retriesLeft = maxRetries;
+    const poll = (): void => {
+      const timer = setTimeout(() => {
+        db.withSession(this.settings.dbPath, (conn) => {
+          const workflow = db.getWorkflow(conn, workflowId);
+          if (!workflow) return;
+          const status = String(workflow.status ?? '');
+          if (status === 'done' || status === 'blocked') {
+            timers.delete(workflowId);
+            return;
+          }
+          if (status === 'failed' && retriesLeft > 0) {
+            retriesLeft -= 1;
+            console.error(`[concierge] build #${workflowId} failed; auto-retrying (${retriesLeft} left)`);
+            db.updateWorkflow(conn, workflowId, { status: 'queued', error: null, finished_at: null });
+            this.startBuildRunner(workflowId, brief, repoPath);
+            // Schedule next poll.
+            poll();
+            return;
+          }
+          if (status === 'failed' && retriesLeft <= 0) {
+            console.error(`[concierge] build #${workflowId} failed and retries exhausted.`);
+            timers.delete(workflowId);
+            return;
+          }
+          // Still running/queued: poll again.
+          poll();
+        });
+      }, 15000);
+      timers.set(workflowId, timer);
+    };
+    poll();
   }
 
   /** Compact representation of a workflow row. */
