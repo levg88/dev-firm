@@ -147,6 +147,59 @@ export class FallbackLlmClient extends LLMClient {
  * Build the LLM client used by the chat concierge. Supports per-model fallback
  * rotation across the configured free/paid models.
  */
+export function buildAgentLlm(settings: Settings, role?: string): LLMClient {
+  // Per-role model override (e.g. DEV_FIRM_MODEL_ARCHITECT) takes precedence.
+  const roleModel = role && settings.roleModels?.[role] ? settings.roleModels[role] : undefined;
+  const roleBaseUrl = role && settings.roleBaseUrls?.[role] ? settings.roleBaseUrls[role] : undefined;
+
+  const provider = settings.agentProvider || settings.provider;
+  const model = roleModel || settings.agentModel || settings.model;
+  const baseUrl = roleBaseUrl || settings.agentBaseUrl || (provider === 'opencode' ? settings.opencodeBaseUrl : (provider === 'ollama' ? settings.ollamaBaseUrl : settings.baseUrl));
+  const apiKey = settings.agentApiKey || (provider === 'opencode' ? settings.opencodeApiKey : (provider === 'openai' ? settings.apiKey : (provider === 'anthropic' ? settings.anthropicApiKey : 'ollama')));
+
+  const buildOne = (m: string): LLMClient => {
+    if (provider === 'mock') return new (require('./mock').MockClient)('Offline mode');
+    if (provider === 'anthropic') {
+      if (!apiKey) return new (require('./mock').MockClient)('No Anthropic API key');
+      return new AnthropicClient({ apiKey, baseUrl, model: m, temperature: settings.temperature, maxTokens: settings.maxTokens, timeout: settings.timeout });
+    }
+    return new OpenAICompatClient({ apiKey: apiKey || 'ollama', baseUrl, model: m, temperature: settings.temperature, maxTokens: settings.maxTokens, timeout: settings.timeout, provider: provider as any });
+  };
+
+  // Offline guard.
+  if (provider === 'opencode' && !apiKey) return new (require('./mock').MockClient)('No OpenCode API key');
+  if (provider === 'openai' && !apiKey) return new (require('./mock').MockClient)('No OpenAI API key');
+  if (provider === 'anthropic' && !apiKey) return new (require('./mock').MockClient)('No Anthropic API key');
+
+  const candidates: LLMClient[] = [];
+  const seen = new Set<string>();
+  const add = (m: string) => {
+    const mm = (m || '').trim();
+    if (!mm || seen.has(mm)) return;
+    seen.add(mm);
+    candidates.push(buildOne(mm));
+  };
+  add(model);
+  for (const m of settings.agentFallbackModels ?? []) add(m);
+
+  // Last-resort fallback: local Ollama (slow but always available).
+  if (provider !== 'ollama' && settings.ollamaBaseUrl) {
+    const ollamaClient = new OpenAICompatClient({
+      apiKey: 'ollama',
+      baseUrl: settings.ollamaBaseUrl,
+      model: settings.model || 'qwen2.5-coder:14b',
+      temperature: settings.temperature,
+      maxTokens: settings.maxTokens,
+      timeout: settings.timeout,
+      provider: 'ollama',
+    });
+    candidates.push(ollamaClient);
+  }
+
+  if (candidates.length === 1) return candidates[0];
+  return new FallbackLlmClient(candidates);
+}
+
 export function buildConciergeLlm(settings: Settings): LLMClient {
   const provider = settings.conciergeProvider || settings.provider;
   const model = settings.conciergeModel || settings.model;

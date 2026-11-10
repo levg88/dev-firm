@@ -205,6 +205,17 @@ export class Settings {
   /** Fallback models tried in order when the concierge model is rate-limited. */
   conciergeFallbackModels: string[];
 
+  /** Provider used by the build agents (defaults to the main provider). */
+  agentProvider: string;
+  /** Model used by the build agents. */
+  agentModel: string;
+  /** Base URL for the agent provider. */
+  agentBaseUrl: string;
+  /** API key override for the agent provider. */
+  agentApiKey: string;
+  /** Fallback models tried in order when an agent model is rate-limited. */
+  agentFallbackModels: string[];
+
   constructor(values: {
     home: string;
     provider: Provider;
@@ -242,6 +253,11 @@ export class Settings {
     conciergeBaseUrl?: string;
     conciergeApiKey?: string;
     conciergeFallbackModels?: string[];
+    agentProvider?: string;
+    agentModel?: string;
+    agentBaseUrl?: string;
+    agentApiKey?: string;
+    agentFallbackModels?: string[];
   }) {
     this.home = values.home;
     this.dataDir = values.home;
@@ -287,6 +303,11 @@ export class Settings {
     this.conciergeBaseUrl = values.conciergeBaseUrl ?? '';
     this.conciergeApiKey = values.conciergeApiKey ?? '';
     this.conciergeFallbackModels = values.conciergeFallbackModels ?? [];
+    this.agentProvider = values.agentProvider ?? '';
+    this.agentModel = values.agentModel ?? '';
+    this.agentBaseUrl = values.agentBaseUrl ?? '';
+    this.agentApiKey = values.agentApiKey ?? '';
+    this.agentFallbackModels = values.agentFallbackModels ?? [];
     // Defaults: prefer opencode hosted when a key is present.
     if (!this.conciergeProvider) {
       this.conciergeProvider = this.opencodeApiKey ? 'opencode' : this.provider;
@@ -322,6 +343,35 @@ export class Settings {
         ];
       } else {
         this.conciergeFallbackModels = [this.conciergeModel];
+      }
+    }
+
+    // Agent defaults: prefer opencode hosted (free) when a key is present.
+    if (!this.agentProvider) {
+      this.agentProvider = this.opencodeApiKey ? 'opencode' : this.provider;
+    }
+    if (!this.agentModel) this.agentModel = this.model;
+    if (!this.agentBaseUrl) {
+      this.agentBaseUrl = this.agentProvider === 'opencode'
+        ? (this.opencodeBaseUrl || 'https://opencode.ai/inference/openai/v1')
+        : (this.agentProvider === 'ollama' ? this.ollamaBaseUrl : this.baseUrl);
+    }
+    if (!this.agentApiKey) {
+      this.agentApiKey = this.agentProvider === 'opencode'
+        ? this.opencodeApiKey
+        : (this.agentProvider === 'openai' ? this.apiKey : (this.agentProvider === 'anthropic' ? this.anthropicApiKey : ''));
+    }
+    if (!this.agentFallbackModels || this.agentFallbackModels.length === 0) {
+      if (this.agentProvider === 'opencode') {
+        this.agentFallbackModels = [
+          'deepseek-v4.1-flash-free',
+          'glm-5.3-flash-free',
+          'mimo-v2.6-flash-free',
+          'nemotron-3.5-lightning-free',
+          'beam-free',
+        ];
+      } else {
+        this.agentFallbackModels = [this.agentModel];
       }
     }
   }
@@ -411,6 +461,13 @@ export class Settings {
       conciergeApiKey: process.env.DEV_FIRM_CONCIERGE_API_KEY || '',
       conciergeFallbackModels: process.env.DEV_FIRM_CONCIERGE_FALLBACK_MODELS
         ? process.env.DEV_FIRM_CONCIERGE_FALLBACK_MODELS.split(',').map((s) => s.trim()).filter(Boolean)
+        : undefined,
+      agentProvider: process.env.DEV_FIRM_AGENT_PROVIDER || '',
+      agentModel: process.env.DEV_FIRM_AGENT_MODEL || '',
+      agentBaseUrl: process.env.DEV_FIRM_AGENT_BASE_URL || '',
+      agentApiKey: process.env.DEV_FIRM_AGENT_API_KEY || '',
+      agentFallbackModels: process.env.DEV_FIRM_AGENT_FALLBACK_MODELS
+        ? process.env.DEV_FIRM_AGENT_FALLBACK_MODELS.split(',').map((s) => s.trim()).filter(Boolean)
         : undefined,
     });
     settings.ensureDirs();
@@ -589,6 +646,20 @@ export class Settings {
         this.conciergeFallbackModels = raw.split(',').map((s) => s.trim()).filter(Boolean);
       }
     }
+    if ('agent_provider' in values) this.agentProvider = String(values.agent_provider).trim();
+    if ('agent_model' in values) this.agentModel = String(values.agent_model).trim();
+    if ('agent_base_url' in values) this.agentBaseUrl = String(values.agent_base_url).trim();
+    if ('agent_api_key' in values) this.agentApiKey = String(values.agent_api_key).trim();
+    if ('agent_fallback_models' in values) {
+      const raw = String(values.agent_fallback_models).trim();
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) this.agentFallbackModels = parsed.map((x) => String(x));
+        else this.agentFallbackModels = raw.split(',').map((s) => s.trim()).filter(Boolean);
+      } catch {
+        this.agentFallbackModels = raw.split(',').map((s) => s.trim()).filter(Boolean);
+      }
+    }
   }
 
   get githubConfigured(): boolean {
@@ -630,6 +701,11 @@ export class Settings {
       concierge_base_url: this.conciergeBaseUrl,
       concierge_api_key: options.includeSecrets ? this.conciergeApiKey : '',
       concierge_fallback_models: JSON.stringify(this.conciergeFallbackModels),
+      agent_provider: this.agentProvider,
+      agent_model: this.agentModel,
+      agent_base_url: this.agentBaseUrl,
+      agent_api_key: options.includeSecrets ? this.agentApiKey : '',
+      agent_fallback_models: JSON.stringify(this.agentFallbackModels),
     };
     if (options.includeSecrets) {
       values.api_key = this.apiKey;
@@ -692,6 +768,10 @@ export class Settings {
       concierge_model: this.conciergeModel,
       concierge_base_url: this.conciergeBaseUrl,
       concierge_fallback_models: this.conciergeFallbackModels,
+      agent_provider: this.agentProvider,
+      agent_model: this.agentModel,
+      agent_base_url: this.agentBaseUrl,
+      agent_fallback_models: this.agentFallbackModels,
     };
   }
 

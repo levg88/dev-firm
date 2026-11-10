@@ -13,7 +13,7 @@ import path from 'node:path';
 
 import { Settings } from '../config';
 import * as db from '../db';
-import { buildLlm, LLMClient, MockClient } from '../llm';
+import { buildAgentLlm, LLMClient, MockClient } from '../llm';
 import {
   Architecture,
   BugSpec,
@@ -114,7 +114,7 @@ export class BuildService {
 
   constructor(settings: Settings) {
     this.settings = settings;
-    this.llm = buildLlm(settings);
+    this.llm = buildAgentLlm(settings);
     this.agents = new BuildAgents(settings);
   }
 

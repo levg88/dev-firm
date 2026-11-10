@@ -227,6 +227,10 @@ export function createApp(initialSettings?: Settings): express.Express {
       concierge_model: bodyString(req, 'concierge_model').trim(),
       concierge_base_url: bodyString(req, 'concierge_base_url').trim(),
       concierge_fallback_models: bodyString(req, 'concierge_fallback_models').trim(),
+      agent_provider: bodyString(req, 'agent_provider').trim(),
+      agent_model: bodyString(req, 'agent_model').trim(),
+      agent_base_url: bodyString(req, 'agent_base_url').trim(),
+      agent_fallback_models: bodyString(req, 'agent_fallback_models').trim(),
       host: settings.host,
       port: String(settings.port),
       setup_complete: 'true',
@@ -252,6 +256,8 @@ export function createApp(initialSettings?: Settings): express.Express {
     if (githubAssignees) updates.github_assignees_json = githubAssignees;
     const enteredConciergeKey = bodyString(req, 'concierge_api_key').trim();
     if (enteredConciergeKey) updates.concierge_api_key = enteredConciergeKey;
+    const enteredAgentKey = bodyString(req, 'agent_api_key').trim();
+    if (enteredAgentKey) updates.agent_api_key = enteredAgentKey;
     if (provider === 'anthropic') updates.anthropic_base_url = resolvedBase;
     else if (provider === 'ollama') updates.ollama_base_url = resolvedBase;
     else if (provider === 'opencode') updates.opencode_base_url = resolvedBase;

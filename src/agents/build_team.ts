@@ -8,7 +8,7 @@
  */
 
 import { Settings } from '../config';
-import { buildLlmForRole } from '../llm';
+import { buildAgentLlm } from '../llm';
 import { Architect } from './architect';
 import { DevOps } from './devops';
 import { Developer } from './developer';
@@ -39,14 +39,14 @@ export class BuildAgents {
 
   constructor(private readonly settings: Settings) {
     // Build a separate LLM client per role so models can be tuned per agent.
-    const llmPm = buildLlmForRole(settings, 'product_manager');
-    const llmArchitect = buildLlmForRole(settings, 'architect');
-    const llmTeamLead = buildLlmForRole(settings, 'team_lead');
-    const llmBackend = buildLlmForRole(settings, 'backend_developer');
-    const llmFrontend = buildLlmForRole(settings, 'frontend_developer');
-    const llmQa = buildLlmForRole(settings, 'qa');
-    const llmTechLead = buildLlmForRole(settings, 'tech_lead');
-    const llmDevOps = buildLlmForRole(settings, 'devops');
+    const llmPm = buildAgentLlm(settings, 'product_manager');
+    const llmArchitect = buildAgentLlm(settings, 'architect');
+    const llmTeamLead = buildAgentLlm(settings, 'team_lead');
+    const llmBackend = buildAgentLlm(settings, 'backend_developer');
+    const llmFrontend = buildAgentLlm(settings, 'frontend_developer');
+    const llmQa = buildAgentLlm(settings, 'qa');
+    const llmTechLead = buildAgentLlm(settings, 'tech_lead');
+    const llmDevOps = buildAgentLlm(settings, 'devops');
 
     this._pm = new ProductManager(settings, llmPm);
     this._architect = new Architect(settings, llmArchitect);
