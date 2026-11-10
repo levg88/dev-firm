@@ -6,7 +6,7 @@
  */
 import { Settings } from '../config';
 import { AnthropicClient } from './anthropic';
-import { LLMClient, LLMError } from './base';
+import { LLMClient, LLMError, LLMResponse } from './base';
 import { MockClient } from './mock';
 import { OpenAICompatClient } from './openai-compat';
 
@@ -93,4 +93,112 @@ export function buildLlmForRole(settings: Settings, role: string | undefined): L
   }
 
   throw new LLMError(`Unknown provider: ${provider}`);
+}
+
+/**
+ * An LLM client that tries several underlying clients in order, falling back
+ * to the next one when the current model is rate-limited or unavailable.
+ * Used by the chat concierge to rotate across free hosted models.
+ */
+export class FallbackLlmClient extends LLMClient {
+  readonly provider: string;
+  readonly model: string;
+  private candidates: LLMClient[];
+  private disabled = new Map<number, number>(); // index -> re-enable timestamp
+
+  constructor(candidates: LLMClient[]) {
+    super();
+    if (candidates.length === 0) throw new LLMError('No LLM candidates provided');
+    this.candidates = candidates;
+    this.provider = candidates[0].provider;
+    this.model = candidates[0].model;
+  }
+
+  async complete(messages: any[], options?: any): Promise<LLMResponse> {
+    const now = Date.now();
+    let lastError: unknown = null;
+    for (let i = 0; i < this.candidates.length; i++) {
+      const until = this.disabled.get(i);
+      if (until && until > now) continue;
+      const client = this.candidates[i];
+      try {
+        const result = await client.complete(messages, options);
+        // Update advertised model/provider to the one that actually worked.
+        (this as any).provider = client.provider;
+        (this as any).model = client.model;
+        return result;
+      } catch (error) {
+        lastError = error;
+        const msg = error instanceof Error ? error.message : String(error);
+        if (/429|rate.?limit|FreeUsageLimit|usage limit|throttl/i.test(msg)) {
+          // Disable this candidate for 5 minutes.
+          this.disabled.set(i, now + 5 * 60 * 1000);
+          continue;
+        }
+        // Non-rate-limit error: try next candidate anyway.
+        continue;
+      }
+    }
+    throw (lastError instanceof Error ? lastError : new Error(String(lastError)));
+  }
+}
+
+/**
+ * Build the LLM client used by the chat concierge. Supports per-model fallback
+ * rotation across the configured free/paid models.
+ */
+export function buildConciergeLlm(settings: Settings): LLMClient {
+  const provider = settings.conciergeProvider || settings.provider;
+  const model = settings.conciergeModel || settings.model;
+
+  // No key for a hosted provider -> offline.
+  if (provider === 'opencode' && !settings.conciergeApiKey && !settings.opencodeApiKey) {
+    return new MockClient('No OpenCode API key is configured');
+  }
+  if (provider === 'openai' && !settings.conciergeApiKey && !settings.apiKey) {
+    return new MockClient('No OpenAI API key is configured');
+  }
+  if (provider === 'anthropic' && !settings.conciergeApiKey && !settings.anthropicApiKey) {
+    return new MockClient('No Anthropic API key is configured');
+  }
+  const baseUrl = settings.conciergeBaseUrl || (provider === 'opencode' ? settings.opencodeBaseUrl : (provider === 'ollama' ? settings.ollamaBaseUrl : settings.baseUrl));
+  const apiKey = settings.conciergeApiKey || (provider === 'opencode' ? settings.opencodeApiKey : (provider === 'openai' ? settings.apiKey : (provider === 'anthropic' ? settings.anthropicApiKey : 'ollama')));
+
+  const buildOne = (m: string): LLMClient => {
+    if (provider === 'mock') return new (require('./mock').MockClient)('Offline mode');
+    if (provider === 'anthropic') {
+      if (!apiKey) return new (require('./mock').MockClient)('No Anthropic API key');
+      return new AnthropicClient({ apiKey, baseUrl, model: m, temperature: settings.temperature, maxTokens: settings.maxTokens, timeout: settings.timeout });
+    }
+    return new OpenAICompatClient({ apiKey: apiKey || 'ollama', baseUrl, model: m, temperature: settings.temperature, maxTokens: settings.maxTokens, timeout: settings.timeout, provider: provider as any });
+  };
+
+  const candidates: LLMClient[] = [];
+  const seen = new Set<string>();
+  const add = (m: string) => {
+    const mm = (m || '').trim();
+    if (!mm || seen.has(mm)) return;
+    seen.add(mm);
+    candidates.push(buildOne(mm));
+  };
+  add(model);
+  for (const m of settings.conciergeFallbackModels ?? []) add(m);
+
+  // Last-resort fallback: local Ollama (slow but always available) so the
+  // chat keeps working when every hosted model is rate-limited.
+  if (provider !== 'ollama' && settings.ollamaBaseUrl) {
+    const ollamaClient = new OpenAICompatClient({
+      apiKey: 'ollama',
+      baseUrl: settings.ollamaBaseUrl,
+      model: settings.model || 'qwen2.5-coder:14b',
+      temperature: settings.temperature,
+      maxTokens: settings.maxTokens,
+      timeout: settings.timeout,
+      provider: 'ollama',
+    });
+    candidates.push(ollamaClient);
+  }
+
+  if (candidates.length === 1) return candidates[0];
+  return new FallbackLlmClient(candidates);
 }

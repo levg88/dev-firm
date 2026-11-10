@@ -13,7 +13,7 @@ import { Agent, ToolRegistry } from '../agents/base';
 import type { AgentHistoryMessage } from '../agents/base';
 import { Settings } from '../config';
 import * as db from '../db';
-import { buildLlm, LLMClient, MockClient } from '../llm';
+import { buildLlm, buildConciergeLlm, LLMClient, MockClient } from '../llm';
 import { BuildService } from '../orchestrator/build';
 import { RepoCatalog, RepoError } from './repos';
 
@@ -47,6 +47,7 @@ export class ChatService {
   readonly llm: LLMClient;
   readonly repos: RepoCatalog;
   readonly startBuildRunner: (workflowId: number, brief: string, repoPath?: string) => void;
+  readonly offline: boolean;
 
   constructor(
     settings: Settings,
@@ -57,7 +58,12 @@ export class ChatService {
     } = {},
   ) {
     this.settings = settings;
-    this.llm = options.llm ?? buildLlm(settings);
+    const built = options.llm ?? buildConciergeLlm(settings);
+    this.llm = built;
+    this.offline =
+      !options.llm &&
+      (settings.conciergeProvider === 'mock' ||
+        (built instanceof MockClient));
     this.repos = options.repos ?? new RepoCatalog(settings.reposDir);
     this.startBuildRunner =
       options.startBuildRunner ??

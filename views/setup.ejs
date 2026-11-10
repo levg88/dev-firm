@@ -85,6 +85,47 @@
   </section>
 
   <section class="card" style="margin-top: 16px;">
+    <h2 style="margin-top: 0;">Chat concierge (fast model)</h2>
+    <p class="small muted">
+      The chat concierge can use a separate, faster model than the build agents.
+      Hosted providers (OpenCode, OpenAI, Anthropic) make the chat snappy and
+      instruction-following. Free OpenCode models rotate automatically when one
+      is rate-limited. Leave blank to inherit the main provider/model.
+    </p>
+    <div class="field">
+      <label for="concierge_provider">Concierge provider</label>
+      <select id="concierge_provider" name="concierge_provider">
+        <option value="" <%= !settings.conciergeProvider ? "selected" : "" %>>Inherit (main provider)</option>
+        <option value="opencode" <%= settings.conciergeProvider === "opencode" ? "selected" : "" %>>opencode</option>
+        <option value="openai" <%= settings.conciergeProvider === "openai" ? "selected" : "" %>>openai</option>
+        <option value="anthropic" <%= settings.conciergeProvider === "anthropic" ? "selected" : "" %>>anthropic</option>
+        <option value="ollama" <%= settings.conciergeProvider === "ollama" ? "selected" : "" %>>ollama</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="concierge_model">Concierge model</label>
+      <input id="concierge_model" type="text" name="concierge_model" value="<%= settings.conciergeModel %>"
+             placeholder="deepseek-v4.1-flash-free">
+    </div>
+    <div class="field">
+      <label for="concierge_base_url">Concierge base URL (optional)</label>
+      <input id="concierge_base_url" type="text" name="concierge_base_url" value="<%= settings.conciergeBaseUrl %>"
+             placeholder="https://opencode.ai/inference/openai/v1">
+    </div>
+    <div class="field">
+      <label for="concierge_api_key">Concierge API key (optional, falls back to provider key)</label>
+      <input id="concierge_api_key" type="password" name="concierge_api_key" value=""
+             placeholder="Leave blank to reuse the provider key">
+    </div>
+    <div class="field">
+      <label for="concierge_fallback_models">Fallback models (comma-separated)</label>
+      <input id="concierge_fallback_models" type="text" name="concierge_fallback_models"
+             value="<%= (settings.conciergeFallbackModels || []).join(',') %>"
+             placeholder="glm-5.3-flash-free,mimo-v2.6-flash-free,beam-free">
+    </div>
+  </section>
+
+  <section class="card" style="margin-top: 16px;">
     <h2 style="margin-top: 0;">Repositories</h2>
     <p class="small muted">
       The chat concierge looks here when you name a repository (for example

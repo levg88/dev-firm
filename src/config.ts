@@ -194,6 +194,17 @@ export class Settings {
   /** Per-role base URL overrides (e.g. DEV_FIRM_OLLAMA_BASE_URL_ARCHITECT for multiple Ollama instances). */
   roleBaseUrls: Record<string, string>;
 
+  /** Provider used by the chat concierge (defaults to opencode when a key is present). */
+  conciergeProvider: string;
+  /** Model used by the chat concierge. */
+  conciergeModel: string;
+  /** Base URL for the concierge provider. */
+  conciergeBaseUrl: string;
+  /** API key override for the concierge provider (falls back to the matching provider key). */
+  conciergeApiKey: string;
+  /** Fallback models tried in order when the concierge model is rate-limited. */
+  conciergeFallbackModels: string[];
+
   constructor(values: {
     home: string;
     provider: Provider;
@@ -226,6 +237,11 @@ export class Settings {
     githubToken: string;
     roleModels?: Record<string, string>;
     roleBaseUrls?: Record<string, string>;
+    conciergeProvider?: string;
+    conciergeModel?: string;
+    conciergeBaseUrl?: string;
+    conciergeApiKey?: string;
+    conciergeFallbackModels?: string[];
   }) {
     this.home = values.home;
     this.dataDir = values.home;
@@ -266,6 +282,48 @@ export class Settings {
     this.githubToken = values.githubToken;
     this.roleModels = values.roleModels ?? {};
     this.roleBaseUrls = values.roleBaseUrls ?? {};
+    this.conciergeProvider = values.conciergeProvider ?? '';
+    this.conciergeModel = values.conciergeModel ?? '';
+    this.conciergeBaseUrl = values.conciergeBaseUrl ?? '';
+    this.conciergeApiKey = values.conciergeApiKey ?? '';
+    this.conciergeFallbackModels = values.conciergeFallbackModels ?? [];
+    // Defaults: prefer opencode hosted when a key is present.
+    if (!this.conciergeProvider) {
+      this.conciergeProvider = this.opencodeApiKey ? 'opencode' : this.provider;
+    }
+    if (!this.conciergeModel) {
+      this.conciergeModel = this.conciergeProvider === 'opencode'
+        ? 'deepseek-v4.1-flash-free'
+        : this.model;
+    }
+    if (!this.conciergeBaseUrl) {
+      this.conciergeBaseUrl = this.conciergeProvider === 'opencode'
+        ? (this.opencodeBaseUrl || 'https://opencode.ai/inference/openai/v1')
+        : (this.conciergeProvider === 'ollama' ? this.ollamaBaseUrl : this.baseUrl);
+    }
+    if (!this.conciergeApiKey) {
+      this.conciergeApiKey = this.conciergeProvider === 'opencode'
+        ? this.opencodeApiKey
+        : (this.conciergeProvider === 'openai' ? this.apiKey : (this.conciergeProvider === 'anthropic' ? this.anthropicApiKey : ''));
+    }
+    if (!this.conciergeFallbackModels || this.conciergeFallbackModels.length === 0) {
+      if (this.conciergeProvider === 'opencode') {
+        this.conciergeFallbackModels = [
+          'deepseek-v4.1-flash-free',
+          'glm-5.3-flash-free',
+          'mimo-v2.6-flash-free',
+          'nemotron-3.5-lightning-free',
+          'beam-free',
+          'flint-40b-free',
+          'iceman-free',
+          'crouton-alpha-free',
+          'inkling-2-small-free',
+          'big-pickle',
+        ];
+      } else {
+        this.conciergeFallbackModels = [this.conciergeModel];
+      }
+    }
   }
 
   static load(): Settings {
@@ -347,6 +405,13 @@ export class Settings {
       githubToken,
       roleModels: this._parseRoleModels(),
       roleBaseUrls: this._parseRoleBaseUrls(),
+      conciergeProvider: process.env.DEV_FIRM_CONCIERGE_PROVIDER || '',
+      conciergeModel: process.env.DEV_FIRM_CONCIERGE_MODEL || '',
+      conciergeBaseUrl: process.env.DEV_FIRM_CONCIERGE_BASE_URL || '',
+      conciergeApiKey: process.env.DEV_FIRM_CONCIERGE_API_KEY || '',
+      conciergeFallbackModels: process.env.DEV_FIRM_CONCIERGE_FALLBACK_MODELS
+        ? process.env.DEV_FIRM_CONCIERGE_FALLBACK_MODELS.split(',').map((s) => s.trim()).filter(Boolean)
+        : undefined,
     });
     settings.ensureDirs();
     return settings;
@@ -510,6 +575,20 @@ export class Settings {
         // ignore malformed
       }
     }
+    if ('concierge_provider' in values) this.conciergeProvider = String(values.concierge_provider).trim();
+    if ('concierge_model' in values) this.conciergeModel = String(values.concierge_model).trim();
+    if ('concierge_base_url' in values) this.conciergeBaseUrl = String(values.concierge_base_url).trim();
+    if ('concierge_api_key' in values) this.conciergeApiKey = String(values.concierge_api_key).trim();
+    if ('concierge_fallback_models' in values) {
+      const raw = String(values.concierge_fallback_models).trim();
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) this.conciergeFallbackModels = parsed.map((x) => String(x));
+        else this.conciergeFallbackModels = raw.split(',').map((s) => s.trim()).filter(Boolean);
+      } catch {
+        this.conciergeFallbackModels = raw.split(',').map((s) => s.trim()).filter(Boolean);
+      }
+    }
   }
 
   get githubConfigured(): boolean {
@@ -546,6 +625,11 @@ export class Settings {
       github_assignees_json: JSON.stringify(this.githubAssigneeLogins),
       role_models: JSON.stringify(this.roleModels),
       role_base_urls: JSON.stringify(this.roleBaseUrls),
+      concierge_provider: this.conciergeProvider,
+      concierge_model: this.conciergeModel,
+      concierge_base_url: this.conciergeBaseUrl,
+      concierge_api_key: options.includeSecrets ? this.conciergeApiKey : '',
+      concierge_fallback_models: JSON.stringify(this.conciergeFallbackModels),
     };
     if (options.includeSecrets) {
       values.api_key = this.apiKey;
@@ -604,6 +688,10 @@ export class Settings {
       github_token_hint: this.githubTokenHint,
       role_models: this.roleModels,
       role_base_urls: this.roleBaseUrls,
+      concierge_provider: this.conciergeProvider,
+      concierge_model: this.conciergeModel,
+      concierge_base_url: this.conciergeBaseUrl,
+      concierge_fallback_models: this.conciergeFallbackModels,
     };
   }
 
